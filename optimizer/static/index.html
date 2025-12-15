@@ -309,6 +309,55 @@
             color: var(--danger);
         }
 
+        .log-tabs {
+            display: flex;
+            gap: 0;
+            margin-top: 1rem;
+            margin-bottom: 0;
+        }
+
+        .log-tab {
+            padding: 0.4rem 1rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        .log-tab:first-child {
+            border-radius: 6px 0 0 6px;
+        }
+
+        .log-tab:last-child {
+            border-radius: 0 6px 6px 0;
+            border-left: none;
+        }
+
+        .log-tab.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .analysis-container {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.8rem;
+        }
+
+        .analysis-empty {
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 2rem;
+        }
+
         .empty-state {
             text-align: center;
             padding: 3rem;
@@ -727,6 +776,17 @@
             <h2>Configuration</h2>
 
             <div class="form-group">
+                <label>Algorithm</label>
+                <select id="algo-select" onchange="onAlgoChange()">
+                    <option value="default">Default - Grid Search</option>
+                    <option value="chatgpt">ChatGPT - 9AM Strategy</option>
+                </select>
+                <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                    <span id="algo-description">Buy on dip, sell on profit target</span>
+                </div>
+            </div>
+
+            <div class="form-group">
                 <label>Stock Symbols (comma-separated)</label>
                 <input type="text" id="symbols" value="TSLA" placeholder="TSLA, NVDA, AAPL" />
                 <div
@@ -821,8 +881,19 @@
                 </div>
             </div>
 
+            <div class="log-tabs">
+                <button class="log-tab active" id="tab-status" onclick="switchLogTab('status')">Status</button>
+                <button class="log-tab" id="tab-analysis" onclick="switchLogTab('analysis')">Analysis</button>
+            </div>
+
             <div class="log-container" id="log">
                 <div class="log-entry info">[System] Ready to optimize</div>
+            </div>
+
+            <div class="analysis-container" id="analysis" style="display: none;">
+                <div class="analysis-empty">
+                    <p>Run an optimization to see detailed analysis</p>
+                </div>
             </div>
         </section>
 
@@ -863,10 +934,24 @@
         let ws = null;
         const results = {};
         const CONFIG_KEY = 'optimizer_config';
-        let historyData = []; // Store history for so  let currentSort = 'date'; // Current sort field
+        let historyData = []; // Store history data
+        let currentSort = 'date'; // Current sort field
         let searchFilter = ''; // Search filter text
         let showGpuRuns = true; // GPU filter
         let showCpuRuns = true; // CPU filter
+
+        // Algorithm descriptions
+        const algoDescriptions = {
+            'default': 'Buy on dip, sell on profit target',
+            'chatgpt': 'Buy at 9AM if price >= open, sell before close'
+        };
+
+        // Handle algo selection change
+        function onAlgoChange() {
+            const algo = document.getElementById('algo-select').value;
+            document.getElementById('algo-description').textContent = algoDescriptions[algo] || '';
+            saveConfig();
+        }
 
         // Global progress tracking
         let globalProgress = {
@@ -887,6 +972,104 @@
                 return value.toFixed(decimals) + '%';
             }
             return value.toFixed(decimals);
+        }
+
+        // Switch between Status and Analysis tabs
+        function switchLogTab(tab) {
+            const statusTab = document.getElementById('tab-status');
+            const analysisTab = document.getElementById('tab-analysis');
+            const logContainer = document.getElementById('log');
+            const analysisContainer = document.getElementById('analysis');
+
+            if (tab === 'status') {
+                statusTab.classList.add('active');
+                analysisTab.classList.remove('active');
+                logContainer.style.display = 'block';
+                analysisContainer.style.display = 'none';
+            } else {
+                statusTab.classList.remove('active');
+                analysisTab.classList.add('active');
+                logContainer.style.display = 'none';
+                analysisContainer.style.display = 'block';
+            }
+        }
+
+        // Update Analysis tab with detailed algorithm results
+        function updateAnalysisView(result) {
+            const container = document.getElementById('analysis');
+            if (!result || !result.symbol) {
+                container.innerHTML = '<div class="analysis-empty"><p>Run an optimization to see detailed analysis</p></div>';
+                return;
+            }
+
+            const v = result.volatility_profile || {};
+            const m = result.metrics || {};
+            const p = result.best_params || {};
+            const tradeLog = result.trade_log || [];
+
+            // Build trade log table HTML
+            let tradeLogHtml = '';
+            if (tradeLog.length > 0) {
+                tradeLogHtml = `
+                    <div style="margin-top: 0.75rem;">
+                        <div style="color: var(--accent); font-weight: 600; font-size: 0.75rem; margin-bottom: 0.3rem;">📋 Trade Log (${tradeLog.length} days)</div>
+                        <div style="max-height: 600px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px;">
+                            <table style="width: 100%; font-size: 0.6rem; border-collapse: collapse;">
+                                <thead style="background: var(--bg-card); position: sticky; top: 0;">
+                                    <tr>
+                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: left;">Day</th>
+                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: center;">Buy?</th>
+                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">Open</th>
+                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">Close</th>
+                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">% Chg</th>
+                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">Shares</th>
+                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">Profit</th>
+                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">Equity</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${tradeLog.map((t, i) => `
+                                        <tr style="background: ${t.bought ? 'rgba(0,200,100,0.1)' : 'transparent'};">
+                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05);">${i + 1}</td>
+                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: center;">${t.bought ? '✅' : '❌'}</td>
+                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right;">$${t.open?.toFixed(2) || 'N/A'}</td>
+                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right;">$${t.close?.toFixed(2) || 'N/A'}</td>
+                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; color: ${t.pct_change >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.pct_change >= 0 ? '+' : ''}${t.pct_change?.toFixed(2) || 0}%</td>
+                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right;">${t.shares || 0}</td>
+                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; color: ${t.profit >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.profit >= 0 ? '+' : ''}$${t.profit?.toFixed(0) || 0}</td>
+                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right;">$${t.equity?.toLocaleString() || 'N/A'}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            } else {
+                tradeLogHtml = `
+                    <div style="margin-top: 0.75rem; color: var(--text-secondary); font-size: 0.65rem; font-style: italic;">
+                        Trade log not available for this run
+                    </div>
+                `;
+            }
+
+            container.innerHTML = `
+                <div style="padding: 0.5rem;">
+                    <div style="color: var(--accent); font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">
+                        📊 ${result.symbol} Optimization Analysis
+                    </div>
+                    
+                    <div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(29, 155, 240, 0.1); border-radius: 6px;">
+                        <div style="color: var(--text-secondary); font-size: 0.65rem; margin-bottom: 0.3rem;">Strategy:</div>
+                        <div style="color: var(--text); font-size: 0.65rem; line-height: 1.4;">
+                            Buy @ <b>${p.buy_trigger_pct || 'N/A'}%</b> dip → Sell @ <b>${p.sell_trigger_pct || 'N/A'}%</b> profit | 
+                            ${p.compound ? 'Compound' : 'Fixed'} | Win: <b>${m.win_rate ? (m.win_rate * 100).toFixed(0) + '%' : 'N/A'}</b>
+                        </div>
+                    </div>
+                    
+                    ${tradeLogHtml}
+                </div>
+            `;
         }
 
         // Format time as MM:SS or HH:MM:SS
@@ -977,6 +1160,10 @@
                 const saved = localStorage.getItem(CONFIG_KEY);
                 if (saved) {
                     const config = JSON.parse(saved);
+                    if (config.algo) {
+                        document.getElementById('algo-select').value = config.algo;
+                        onAlgoChange();
+                    }
                     document.getElementById('symbols').value = config.symbols || 'TSLA';
                     document.getElementById('start-date').value = config.startDate || '2024-01-01';
                     document.getElementById('end-date').value = config.endDate || '2024-12-01';
@@ -986,7 +1173,7 @@
                     document.getElementById('use-gpu').checked = config.useGpu !== undefined ? config.useGpu : true;
                     document.getElementById('smart-timing').checked = config.smartTiming || false;
                     document.getElementById('timing-approach').value = config.timingApproach || 'sequential';
-                    
+
                     // Show/hide timing approach based on smart timing setting
                     toggleTimingApproach();
                     log('Loaded saved configuration', 'info');
@@ -1000,6 +1187,7 @@
         function saveConfig() {
             try {
                 const config = {
+                    algo: document.getElementById('algo-select').value,
                     symbols: document.getElementById('symbols').value,
                     startDate: document.getElementById('start-date').value,
                     endDate: document.getElementById('end-date').value,
@@ -1113,15 +1301,23 @@
                 const gpuIcon = isGpu
                     ? '<span class="gpu-icon gpu" title="GPU Run">GPU</span>'
                     : '<span class="gpu-icon cpu" title="CPU Run">CPU</span>';
+                const setIcon = item.smart_timing
+                    ? '<span class="gpu-icon" style="background: linear-gradient(135deg, #9333ea, #7c3aed); margin-top: 2px;" title="Smart Entry Timing">SET</span>'
+                    : '';
+                const algoName = item.algo || 'Default';
+                const algoBadge = `<span style="font-size: 0.55rem; color: #ff6b6b; margin-left: 0.3rem; font-weight: 600;">${algoName}</span>`;
                 return `
                 <div class="history-item">
-                    ${gpuIcon}
+                    <div style="display: flex; flex-direction: column; gap: 2px;">
+                        ${gpuIcon}
+                        ${setIcon}
+                    </div>
                     <div class="history-item-content" onclick="showHistoryDetail(${JSON.stringify(item).replace(/"/g, '&quot;')})">
-                        <div class="history-symbol">${item.symbol}</div>
+                        <div class="history-symbol">${item.symbol}${algoBadge}</div>
                         <div class="history-date">${formatDate(item.created_at)}</div>
                         <div class="history-score">
-                            sharpe: ${(sharpe != null && sharpe !== -999999 && !isNaN(sharpe)) ? sharpe.toFixed(2) : 'N/A'} | 
-                            max: ${(maxGain != null && maxGain !== -999999 && !isNaN(maxGain)) ? maxGain.toFixed(1) + '%' : 'N/A'}
+                            win: ${item.win_rate ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'} | 
+                            ret: ${item.total_return ? parseFloat(item.total_return).toFixed(1) + '%' : 'N/A'}
                         </div>
                     </div>
                     <button class="delete-btn" onclick="event.stopPropagation(); deleteHistoryItem(${item.id})" title="Delete">🗑️</button>
@@ -1131,17 +1327,25 @@
 
         // Delete history item
         async function deleteHistoryItem(id) {
-            try {
-                const resp = await fetch(`/api/history/${id}`, { method: 'DELETE' });
-                if (resp.ok) {
-                    log('Deleted history item', 'info');
-                    loadHistory();
-                } else {
-                    log('Failed to delete item', 'error');
-                }
-            } catch (e) {
-                log(`Delete error: ${e.message}`, 'error');
-            }
+            // Optimistic UI update - remove immediately
+            historyData = historyData.filter(item => item.id !== id);
+            document.getElementById('history-count').textContent = `(${historyData.length})`;
+            sortAndRenderHistory();
+
+            // Delete in background
+            fetch(`/api/history/${id}`, { method: 'DELETE' })
+                .then(resp => {
+                    if (resp.ok) {
+                        log('Deleted history item', 'info');
+                    } else {
+                        log('Failed to delete item', 'error');
+                        loadHistory(); // Reload if failed
+                    }
+                })
+                .catch(e => {
+                    log(`Delete error: ${e.message}`, 'error');
+                    loadHistory(); // Reload if error
+                });
         }
 
         // Delete all history items
@@ -1237,16 +1441,33 @@
                         <div class="metric-value">$${(item.capital || 0).toLocaleString()}</div>
                     </div>
                 </div>
-                <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-                    <button class="btn btn-primary" style="flex: 1;" onclick="applyHistoryConfig(${JSON.stringify(item).replace(/"/g, '&quot;')})">
-                        Apply These Settings
-                    </button>
-                    <button class="btn" style="flex: 1; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border);" onclick="openAnalysis('${item.symbol}', ${item.id})">
-                        📊 Open Analysis
-                    </button>
-                </div>
+                <button class="btn btn-primary" style="margin-top: 1rem; width: 100%;" onclick="applyHistoryConfig(${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                    Apply These Settings
+                </button>
             `;
             container.appendChild(card);
+
+            // Update Analysis tab with this history item's data
+            updateAnalysisView({
+                symbol: item.symbol,
+                n_trials: item.n_trials,
+                optimized_for: item.optimized_for || 'sharpe',
+                duration_seconds: item.duration_seconds,
+                best_params: {
+                    buy_trigger_pct: item.buy_trigger_pct,
+                    sell_trigger_pct: item.sell_trigger_pct,
+                    compound: item.compound
+                },
+                volatility_profile: {
+                    volatility_score: item.volatility_score,
+                    avg_daily_range: item.volatility_avg_range,
+                    max_daily_gain: item.volatility_max_gain
+                },
+                metrics: {
+                    win_rate: item.win_rate
+                },
+                trade_log: item.trade_log
+            });
 
             log(`Showing history for ${item.symbol} from ${formatDate(item.created_at)}`, 'info');
         }
@@ -1453,6 +1674,19 @@
           `;
                 }
             }
+
+            // Update Analysis tab with detailed results
+            updateAnalysisView({
+                symbol: data.symbol,
+                n_trials: data.result.n_trials || data.result.trials_count,
+                optimized_for: document.getElementById('metric').value,
+                duration_seconds: data.result.duration_seconds,
+                best_params: data.result.best_params,
+                volatility_profile: data.result.volatility_profile,
+                metrics: data.result.metrics,
+                trade_log: data.result.trade_log
+            });
+            switchLogTab('analysis');
         }
 
         function showError(data) {
@@ -1562,6 +1796,7 @@
             log(`Starting optimization for: ${symbols.join(', ')}`, 'info');
 
             try {
+                const algo = document.getElementById('algo-select').value;
                 const resp = await fetch('/api/optimize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1574,7 +1809,8 @@
                         optimization_metric: metric,
                         use_gpu: useGpu,
                         smart_timing: smartTiming,
-                        timing_approach: timingApproach
+                        timing_approach: timingApproach,
+                        algo: algo
                     })
                 });
 

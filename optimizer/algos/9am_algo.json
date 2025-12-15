@@ -1,0 +1,62 @@
+{
+  "description": "This context describes a stock intraday trading algorithm using historical 1-month data. The AI should generate efficient, fully automated trading code based on minute-level prices, daily buy signals, and equity tracking.",
+  "algorithm": {
+    "strategy": "Buy at 9:00 AM if conditions match, sell intraday before close to maximize profit.",
+    "buy_criteria": {
+      "condition": "Buy if 9:00 AM price >= Opening Market price",
+      "most_probable_buy_percent": 0.22,
+      "formula": "(Price_9AM - Price_Open) / Price_Open * 100"
+    },
+    "sell_criteria": {
+      "condition": "Sell before close to maximize intraday profit",
+      "most_probable_sell_percent": 0.07,
+      "formula": "(Price_Close - Price_9AM) / Price_9AM * 100"
+    },
+    "capital_allocation": "Always invest $1,000 per trade, compounded daily.",
+    "equity_tracking": "Track EOD equity after each trade.",
+    "performance_metrics": [
+      "Total Profit",
+      "Number of Buy Opportunities",
+      "Number of Skipped Days",
+      "Largest Daily Profit",
+      "Largest Daily Loss",
+      "Ending Equity"
+    ]
+  },
+  "data_format": {
+    "columns": [
+      "Day",
+      "Buy?",
+      "Opening Market",
+      "9:00 AM Price",
+      "% vs Open",
+      "Close Price",
+      "% 9:00 → Close",
+      "Shares Bought",
+      "Daily Profit",
+      "EOD Equity"
+    ],
+    "example_row": {
+      "Day": 1,
+      "Buy?": "✅",
+      "Opening Market": 249.37,
+      "9:00 AM Price": 249.65,
+      "% vs Open": 0.11,
+      "Close Price": 248.71,
+      "% 9:00 → Close": -0.38,
+      "Shares Bought": 401,
+      "Daily Profit": -378,
+      "EOD Equity": 99622
+    }
+  },
+  "formulas": {
+    "avg_buy_percent": "AvgBuy% = SUM((Price_9AM - Price_Open)/Price_Open * 100) / N_buy",
+    "avg_sell_percent": "AvgSell% = SUM((Price_Close - Price_9AM)/Price_9AM * 100) / N_buy"
+  },
+  "notes": [
+    "Use minute-level price data to simulate trades for backtesting.",
+    "Apply capital allocation of $1,000 per trade compounded daily.",
+    "Track equity growth over time and highlight Buy vs Skip days for analysis.",
+    "Optimize for highest intraday profit using avg_sell_percent as guideline."
+  ]
+}

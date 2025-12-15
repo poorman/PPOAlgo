@@ -227,6 +227,9 @@ def save_result_to_db(job_id: str, result: dict):
                 if score_values:
                     score = float(score_values[0]) if score_values[0] is not None else 0
             
+            # Get algo from result, default to 'Default'
+            algo = result.get("algo", "Default")
+            
             cur.execute("""
                 INSERT INTO optimizer_results 
                 (job_id, symbol, buy_trigger_pct, sell_trigger_pct, compound, 
@@ -255,7 +258,7 @@ def save_result_to_db(job_id: str, result: dict):
                 Json(result)
             ))
         conn.commit()
-        logger.info(f"Saved result for {result['symbol']} to database")
+        logger.info(f"Saved result for {result['symbol']} (algo: {algo}) to database")
     except Exception as e:
         logger.error(f"Failed to save result: {e}")
     finally:
@@ -344,6 +347,7 @@ class OptimizationRequest(BaseModel):
     use_gpu: bool = False  # Enable GPU-accelerated grid search
     smart_timing: bool = False  # Enable optimal buy time optimization
     timing_approach: str = "sequential"  # "sequential" or "joint"
+    algo: str = "default"  # "default" or "chatgpt"
 
 
 class StockVolatilityAnalyzer:
@@ -393,6 +397,78 @@ class StockVolatilityAnalyzer:
             "buy_trigger": (buy_low, buy_high),
             "sell_trigger": (sell_low, sell_high),
         }
+
+
+def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: float, compound: bool, capital: float = 100000) -> list:
+    """
+    Generate a day-by-day trade log for the Analysis view.
+    
+    Args:
+        bars: List of daily OHLC bars
+        buy_trigger_pct: Buy trigger percentage (e.g., 3.21 for 3.21%)
+        sell_trigger_pct: Sell trigger percentage (e.g., 2.0 for 2.0%)
+        compound: Whether to compound wins
+        capital: Starting capital
+        
+    Returns:
+        List of trade entries with day-by-day data
+    """
+    trade_log = []
+    equity = capital
+    
+    for i, bar in enumerate(bars):  # Process all days in the period
+        open_price = bar.get("o", bar.get("c", 0))
+        close_price = bar.get("c", 0)
+        high_price = bar.get("h", close_price)
+        low_price = bar.get("l", close_price)
+        
+        if open_price <= 0:
+            continue
+            
+        # Calculate % change from open to close
+        pct_change = ((close_price - open_price) / open_price) * 100
+        
+        # Check if we should buy (price drops enough to trigger)
+        # Buy trigger: price must drop buy_trigger_pct% from open before we buy
+        min_price_for_buy = open_price * (1 - buy_trigger_pct / 100)
+        bought = low_price <= min_price_for_buy
+        
+        shares = 0
+        profit = 0
+        
+        if bought:
+            # Calculate how many shares we can buy
+            buy_price = min_price_for_buy  # Assume we buy at trigger price
+            shares = int(equity / buy_price) if buy_price > 0 else 0
+            
+            if shares > 0:
+                # Check if sell target was hit
+                sell_target = buy_price * (1 + sell_trigger_pct / 100)
+                if high_price >= sell_target:
+                    # Sold at target
+                    sell_price = sell_target
+                else:
+                    # Sold at close (or held)
+                    sell_price = close_price
+                
+                profit = shares * (sell_price - buy_price)
+                
+                if compound:
+                    equity += profit
+        
+        trade_log.append({
+            "open": open_price,
+            "close": close_price,
+            "high": high_price,
+            "low": low_price,
+            "pct_change": round(pct_change, 2),
+            "bought": bought,
+            "shares": shares,
+            "profit": round(profit, 0),
+            "equity": round(equity, 0)
+        })
+    
+    return trade_log
 
 
 async def broadcast_message(message: dict):
@@ -959,6 +1035,18 @@ async def optimize_stock(
                 })
                 logger.info(f"Smart Timing complete for {symbol}: {optimal_time} CDT")
             
+            # Generate trade log for Analysis view
+            result["trade_log"] = generate_trade_log(
+                bars,
+                result["best_params"]["buy_trigger_pct"],
+                result["best_params"]["sell_trigger_pct"],
+                result["best_params"]["compound"],
+                config.capital
+            )
+            
+            # Add algo to result
+            result["algo"] = config.algo if hasattr(config, 'algo') else "Default"
+            
             # Save result to database
             save_result_to_db(job_id, result)
             
@@ -1133,6 +1221,18 @@ async def optimize_stock(
         # are available but disabled until intraday data API is confirmed working
         # The simple approach above provides reliable, research-based timing
 
+    # Generate trade log for Analysis view
+    result["trade_log"] = generate_trade_log(
+        bars,
+        result["best_params"]["buy_trigger_pct"],
+        result["best_params"]["sell_trigger_pct"],
+        result["best_params"]["compound"],
+        config.capital
+    )
+    
+    # Add algo to result
+    result["algo"] = config.algo if hasattr(config, 'algo') else "Default"
+    
     # Save result to database
     save_result_to_db(job_id, result)
     
@@ -1296,6 +1396,8 @@ async def get_history(limit: int = None):
                     r.full_result->'metrics'->>'sharpe' as sharpe_from_json,
                     r.full_result->>'duration_seconds' as duration_seconds,
                     r.full_result->>'method' as method,
+                    r.full_result->>'algo' as algo,
+                    r.full_result->'trade_log' as trade_log,
                     j.smart_timing
                 FROM optimizer_results r
                 LEFT JOIN optimizer_jobs j ON r.job_id = j.job_id
