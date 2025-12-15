@@ -151,6 +151,48 @@ def ensure_tables():
                 ON optimizer_results(job_id);
             """)
             
+            # Price cache table for storing downloaded price data
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS price_cache (
+                    id SERIAL PRIMARY KEY,
+                    symbol VARCHAR(20) NOT NULL,
+                    timeframe VARCHAR(10) NOT NULL,
+                    bar_date DATE NOT NULL,
+                    bar_time TIMESTAMPTZ,
+                    open_price NUMERIC(12, 4) NOT NULL,
+                    high_price NUMERIC(12, 4) NOT NULL,
+                    low_price NUMERIC(12, 4) NOT NULL,
+                    close_price NUMERIC(12, 4) NOT NULL,
+                    volume BIGINT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(symbol, timeframe, bar_date, bar_time)
+                );
+            """)
+            
+            # Create indexes for price cache
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_price_cache_symbol_timeframe 
+                ON price_cache(symbol, timeframe);
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_price_cache_symbol_date 
+                ON price_cache(symbol, timeframe, bar_date);
+            """)
+            
+            # Price cache metadata table to track what data we have
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS price_cache_meta (
+                    id SERIAL PRIMARY KEY,
+                    symbol VARCHAR(20) NOT NULL,
+                    timeframe VARCHAR(10) NOT NULL,
+                    min_date DATE NOT NULL,
+                    max_date DATE NOT NULL,
+                    bar_count INTEGER NOT NULL,
+                    last_updated TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(symbol, timeframe)
+                );
+            """)
+            
         conn.commit()
         logger.info("Database tables ensured")
     except Exception as e:
@@ -311,6 +353,309 @@ def get_results_from_db(symbol: str = None) -> List[dict]:
         conn.close()
 
 
+# ============================================================================
+# PRICE CACHE FUNCTIONS
+# ============================================================================
+
+def get_cached_price_range(symbol: str, timeframe: str) -> tuple:
+    """Get the date range of cached prices for a symbol/timeframe."""
+    conn = get_db_conn()
+    if not conn:
+        return None, None
+    
+    try:
+        with conn.cursor() as cur:
+            # Check price_cache_meta first
+            cur.execute("""
+                SELECT min_date, max_date FROM price_cache_meta
+                WHERE symbol = %s AND timeframe = %s
+            """, (symbol.upper(), timeframe))
+            row = cur.fetchone()
+            if row and row[0]:
+                return row[0], row[1]
+            
+            # Check legacy market_daily_bars table for daily data
+            if timeframe == "1Day":
+                cur.execute("""
+                    SELECT MIN(bar_date), MAX(bar_date) FROM market_daily_bars
+                    WHERE ticker = %s
+                """, (symbol.upper(),))
+                row = cur.fetchone()
+                if row and row[0]:
+                    logger.info(f"Found legacy daily data for {symbol}: {row[0]} to {row[1]}")
+                    return row[0], row[1]
+            
+            return None, None
+    except Exception as e:
+        logger.error(f"Failed to get cached price range: {e}")
+        return None, None
+    finally:
+        conn.close()
+
+
+def get_cached_prices(symbol: str, timeframe: str, start_date: str, end_date: str) -> list:
+    """Get cached prices from database. Checks both price_cache and legacy market_daily_bars tables."""
+    conn = get_db_conn()
+    if not conn:
+        return []
+    
+    try:
+        bars = []
+        with conn.cursor() as cur:
+            if timeframe == "1Day":
+                # First try price_cache table (using actual column names)
+                cur.execute("""
+                    SELECT bar_date, open, high, low, close, volume
+                    FROM price_cache
+                    WHERE symbol = %s AND timeframe = %s 
+                    AND bar_date >= %s AND bar_date <= %s
+                    ORDER BY bar_date
+                """, (symbol.upper(), timeframe, start_date, end_date))
+                rows = cur.fetchall()
+                
+                # If no data in price_cache, try legacy market_daily_bars table
+                if not rows:
+                    cur.execute("""
+                        SELECT bar_date, open, high, low, close, volume
+                        FROM market_daily_bars
+                        WHERE ticker = %s 
+                        AND bar_date >= %s AND bar_date <= %s
+                        ORDER BY bar_date
+                    """, (symbol.upper(), start_date, end_date))
+                    rows = cur.fetchall()
+                    if rows:
+                        logger.info(f"Found {len(rows)} bars in legacy market_daily_bars for {symbol}")
+                
+                for row in rows:
+                    bars.append({
+                        "t": row[0].strftime("%Y-%m-%dT05:00:00Z"),
+                        "o": float(row[1]),
+                        "h": float(row[2]),
+                        "l": float(row[3]),
+                        "c": float(row[4]),
+                        "v": float(row[5]) if row[5] else 0
+                    })
+            else:
+                # For intraday, check price_cache first (using actual column names)
+                cur.execute("""
+                    SELECT bar_timestamp, open, high, low, close, volume
+                    FROM price_cache
+                    WHERE symbol = %s AND timeframe = %s 
+                    AND bar_date >= %s AND bar_date <= %s
+                    ORDER BY bar_timestamp
+                """, (symbol.upper(), timeframe, start_date, end_date))
+                rows = cur.fetchall()
+                
+                # Try legacy market_minute_bars if no data
+                if not rows:
+                    cur.execute("""
+                        SELECT bar_date, open, high, low, close, volume
+                        FROM market_minute_bars
+                        WHERE ticker = %s 
+                        AND bar_date >= %s AND bar_date <= %s
+                        ORDER BY bar_date
+                    """, (symbol.upper(), start_date, end_date))
+                    rows = cur.fetchall()
+                    if rows:
+                        logger.info(f"Found {len(rows)} bars in legacy market_minute_bars for {symbol}")
+                
+                for row in rows:
+                    if isinstance(row[0], str):
+                        bars.append({
+                            "t": row[0],
+                            "o": float(row[1]),
+                            "h": float(row[2]),
+                            "l": float(row[3]),
+                            "c": float(row[4]),
+                            "v": float(row[5]) if row[5] else 0
+                        })
+                    else:
+                        bars.append({
+                            "t": row[0].isoformat() if row[0] else "",
+                            "o": float(row[1]),
+                            "h": float(row[2]),
+                            "l": float(row[3]),
+                            "c": float(row[4]),
+                            "v": float(row[5]) if row[5] else 0
+                        })
+            return bars
+    except Exception as e:
+        logger.error(f"Failed to get cached prices: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def save_prices_to_cache(symbol: str, timeframe: str, bars: list):
+    """Save prices to cache database."""
+    if not bars:
+        return
+    
+    conn = get_db_conn()
+    if not conn:
+        return
+    
+    try:
+        with conn.cursor() as cur:
+            # Insert bars
+            for bar in bars:
+                bar_time_str = bar.get("t", "")
+                if not bar_time_str:
+                    continue
+                
+                # Parse date from timestamp
+                bar_date = bar_time_str[:10]
+                
+                # Use actual column names from the existing table
+                cur.execute("""
+                    INSERT INTO price_cache 
+                    (symbol, timeframe, bar_date, bar_timestamp, open, high, low, close, volume)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, timeframe, bar_date, bar_timestamp) DO UPDATE SET
+                    open = EXCLUDED.open,
+                    high = EXCLUDED.high,
+                    low = EXCLUDED.low,
+                    close = EXCLUDED.close,
+                    volume = EXCLUDED.volume
+                """, (
+                    symbol.upper(),
+                    timeframe,
+                    bar_date,
+                    bar_time_str,
+                    bar.get("o", 0),
+                    bar.get("h", 0),
+                    bar.get("l", 0),
+                    bar.get("c", 0),
+                    bar.get("v", 0)
+                ))
+            
+            # Update metadata
+            cur.execute("""
+                SELECT MIN(bar_date), MAX(bar_date), COUNT(*) 
+                FROM price_cache 
+                WHERE symbol = %s AND timeframe = %s
+            """, (symbol.upper(), timeframe))
+            row = cur.fetchone()
+            if row and row[0]:
+                cur.execute("""
+                    INSERT INTO price_cache_meta (symbol, timeframe, min_date, max_date, bar_count, last_updated)
+                    VALUES (%s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (symbol, timeframe) DO UPDATE SET
+                    min_date = EXCLUDED.min_date,
+                    max_date = EXCLUDED.max_date,
+                    bar_count = EXCLUDED.bar_count,
+                    last_updated = NOW()
+                """, (symbol.upper(), timeframe, row[0], row[1], row[2]))
+        
+        conn.commit()
+        logger.info(f"Saved {len(bars)} bars to cache for {symbol} ({timeframe})")
+    except Exception as e:
+        logger.error(f"Failed to save prices to cache: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timeframe: str = "1Day") -> list:
+    """
+    Fetch prices with caching. Only downloads missing data.
+    
+    Args:
+        symbol: Stock symbol
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)
+        timeframe: "1Day" or "1Min"
+    
+    Returns:
+        List of price bars
+    """
+    from datetime import datetime, timedelta
+    
+    symbol = symbol.upper()
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    
+    # Check what we have cached
+    cached_min, cached_max = get_cached_price_range(symbol, timeframe)
+    
+    logger.info(f"Price cache for {symbol} ({timeframe}): {cached_min} to {cached_max}")
+    
+    
+    # Determine what data we need to fetch
+    fetch_ranges = []
+    
+    if cached_min is None:
+        # No cached data, fetch everything
+        fetch_ranges.append((start_date, end_date))
+    else:
+        # Check if we need data before cached range
+        if start_dt.date() < cached_min:
+            fetch_ranges.append((start_date, (cached_min - timedelta(days=1)).strftime("%Y-%m-%d")))
+        
+        # Check if we need data after cached range
+        if end_dt.date() > cached_max:
+            fetch_ranges.append(((cached_max + timedelta(days=1)).strftime("%Y-%m-%d"), end_date))
+    
+    
+    # Fetch missing data
+    for fetch_start, fetch_end in fetch_ranges:
+        logger.info(f"Fetching {symbol} ({timeframe}) from {fetch_start} to {fetch_end}")
+        
+        if timeframe == "1Day":
+            # Fetch daily data in one request
+            try:
+                resp = requests.get(
+                    f"{PPOALGO_API}/api/prices",
+                    params={
+                        "symbol": symbol,
+                        "start": fetch_start,
+                        "end": fetch_end,
+                        "timeframe": "1Day"
+                    },
+                    timeout=60
+                )
+                if resp.status_code == 200:
+                    bars = resp.json()
+                    if bars:
+                        save_prices_to_cache(symbol, timeframe, bars)
+                        logger.info(f"Cached {len(bars)} daily bars for {symbol}")
+            except Exception as e:
+                logger.error(f"Failed to fetch daily prices: {e}")
+        else:
+            # Fetch intraday data in monthly chunks (API limitation)
+            current = datetime.strptime(fetch_start, "%Y-%m-%d")
+            fetch_end_dt = datetime.strptime(fetch_end, "%Y-%m-%d")
+            
+            while current <= fetch_end_dt:
+                chunk_end = min(current + timedelta(days=30), fetch_end_dt)
+                
+                try:
+                    resp = requests.get(
+                        f"{PPOALGO_API}/api/prices",
+                        params={
+                            "symbol": symbol,
+                            "start": current.strftime("%Y-%m-%d"),
+                            "end": chunk_end.strftime("%Y-%m-%d"),
+                            "timeframe": "1Min"
+                        },
+                        timeout=60
+                    )
+                    if resp.status_code == 200:
+                        bars = resp.json()
+                        if bars and len(bars) > 0:
+                            # Only save if we got intraday data (not daily fallback)
+                            if "T09:" in bars[0].get("t", "") or "T1" in bars[0].get("t", ""):
+                                save_prices_to_cache(symbol, timeframe, bars)
+                except Exception as e:
+                    logger.error(f"Failed to fetch intraday prices: {e}")
+                
+                current = chunk_end + timedelta(days=1)
+    
+    # Return cached data for the requested range
+    result = get_cached_prices(symbol, timeframe, start_date, end_date)
+    return result
+
+
 app = FastAPI(title="Stock Optimizer GUI")
 
 app.add_middleware(
@@ -399,9 +744,9 @@ class StockVolatilityAnalyzer:
         }
 
 
-def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: float, compound: bool, capital: float = 100000) -> list:
+def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: float, compound: bool, capital: float = 100000, algo: str = "default", symbol: str = None, start_date: str = None, end_date: str = None) -> list:
     """
-    Generate a day-by-day trade log for the Analysis view.
+    Generate a day-by-day trade log for the Analysis view with buy/sell guidance.
     
     Args:
         bars: List of daily OHLC bars
@@ -409,64 +754,188 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
         sell_trigger_pct: Sell trigger percentage (e.g., 2.0 for 2.0%)
         compound: Whether to compound wins
         capital: Starting capital
+        algo: Algorithm type - "default" or "chatgpt"
+        symbol: Stock symbol (needed for intraday data)
+        start_date: Start date (needed for intraday data)
+        end_date: End date (needed for intraday data)
         
     Returns:
-        List of trade entries with day-by-day data
+        List of trade entries with day-by-day data and guidance
     """
     trade_log = []
     equity = capital
+    
+    
+    # For ChatGPT algo, try to fetch 9AM prices (using cache)
+    price_9am_map = {}
+    if algo == "chatgpt" and symbol and start_date and end_date:
+        try:
+            logger.info(f"Fetching 9AM prices for {symbol} (ChatGPT algo) using cache")
+            
+            # Use cached intraday data
+            intraday_bars = fetch_and_cache_prices(symbol, start_date, end_date, "1Min")
+            
+            
+            if intraday_bars:
+                # Build map of date -> 9AM price (9 AM Eastern = 14:00 UTC winter, 13:00 UTC summer)
+                # Look for first trade between 13:00-15:00 UTC to cover both EST and EDT
+                for bar in intraday_bars:
+                    bar_time = bar.get("t", "")
+                    date_part = bar_time[:10] if bar_time else ""
+                    
+                    # Skip if we already have a price for this date
+                    if date_part in price_9am_map:
+                        continue
+                    
+                    # Extract hour from timestamp (handles both "T14:00:00Z" and "T14:00:00+00:00" formats)
+                    try:
+                        hour_str = bar_time[11:13] if len(bar_time) > 13 else ""
+                        hour = int(hour_str) if hour_str.isdigit() else -1
+                        
+                        # Accept trades between 13:00-15:00 UTC (9-11 AM Eastern)
+                        if 13 <= hour <= 15:
+                            price_9am_map[date_part] = bar.get("o", bar.get("c", 0))
+                    except:
+                        pass
+                
+                
+                logger.info(f"Found 9AM prices for {len(price_9am_map)} days from cache")
+            else:
+                logger.warning(f"No intraday data available for {symbol}")
+        except Exception as e:
+            logger.warning(f"Could not fetch 9AM prices: {e}")
     
     for i, bar in enumerate(bars):  # Process all days in the period
         open_price = bar.get("o", bar.get("c", 0))
         close_price = bar.get("c", 0)
         high_price = bar.get("h", close_price)
         low_price = bar.get("l", close_price)
+        # Get date from bar timestamp
+        bar_date = bar.get("t", "")
+        date_key = bar_date[:10] if bar_date else ""
+        
+        # Get 9AM price if available
+        price_9am = price_9am_map.get(date_key)
+        
         
         if open_price <= 0:
             continue
+        
+        # For ChatGPT algo: Buy at 9AM if price increased by at least buy_trigger_pct
+        if algo == "chatgpt":
+            # Calculate % change from open to 9AM
+            pct_change_9am = ((price_9am - open_price) / open_price * 100) if price_9am and open_price > 0 else 0
             
-        # Calculate % change from open to close
-        pct_change = ((close_price - open_price) / open_price) * 100
-        
-        # Check if we should buy (price drops enough to trigger)
-        # Buy trigger: price must drop buy_trigger_pct% from open before we buy
-        min_price_for_buy = open_price * (1 - buy_trigger_pct / 100)
-        bought = low_price <= min_price_for_buy
-        
-        shares = 0
-        profit = 0
-        
-        if bought:
-            # Calculate how many shares we can buy
-            buy_price = min_price_for_buy  # Assume we buy at trigger price
-            shares = int(equity / buy_price) if buy_price > 0 else 0
+            # ChatGPT strategy: buy at 9AM ONLY if price increased by at least buy_trigger_pct%
+            up_threshold = open_price * (1 + buy_trigger_pct / 100)
+            if price_9am and price_9am >= up_threshold:
+                bought = True
+                buy_price_actual = price_9am
+            else:
+                bought = False
+                buy_price_actual = None
             
-            if shares > 0:
-                # Check if sell target was hit
-                sell_target = buy_price * (1 + sell_trigger_pct / 100)
-                if high_price >= sell_target:
-                    # Sold at target
-                    sell_price = sell_target
-                else:
-                    # Sold at close (or held)
-                    sell_price = close_price
+            
+            # Sell target from 9AM price
+            sell_price_target = buy_price_actual * (1 + sell_trigger_pct / 100) if buy_price_actual else None
+            
+            # Did we hit sell target?
+            sold_at_target = bought and sell_price_target and high_price >= sell_price_target
+            
+            shares = 0
+            profit = 0
+            actual_sell_price = None
+            
+            if bought and buy_price_actual:
+                shares = int(equity / buy_price_actual) if buy_price_actual > 0 else 0
                 
-                profit = shares * (sell_price - buy_price)
+                if shares > 0:
+                    if sold_at_target:
+                        actual_sell_price = sell_price_target
+                    else:
+                        actual_sell_price = close_price  # Sell at close
+                    
+                    profit = shares * (actual_sell_price - buy_price_actual)
+                    
+                    if compound:
+                        equity += profit
+            
+            trade_log.append({
+                "date": bar_date,
+                "open": round(open_price, 2),
+                "price_9am": round(price_9am, 2) if price_9am else None,
+                "pct_change_9am": round(pct_change_9am, 2) if price_9am else None,
+                "close": round(close_price, 2),
+                "high": round(high_price, 2),
+                "low": round(low_price, 2),
+                "pct_change": round(((close_price - open_price) / open_price * 100), 2) if open_price > 0 else 0,
+                "bought": bought,
+                "sold_at_target": sold_at_target,
+                "buy_price": round(buy_price_actual, 2) if buy_price_actual else None,
+                "sell_price": round(sell_price_target, 2) if sell_price_target else None,
+                "actual_sell": round(actual_sell_price, 2) if actual_sell_price else None,
+                "shares": shares,
+                "profit": round(profit, 0),
+                "equity": round(equity, 0),
+                "algo": "chatgpt"
+            })
+        else:
+            # Default algo: buy on dip
+            # Calculate % change from open to close
+            pct_change_open_close = ((close_price - open_price) / open_price) * 100
+            
+            # Calculate buy price target (price must drop this much to trigger buy)
+            buy_price_target = open_price * (1 - buy_trigger_pct / 100)
+            
+            # Check if buy was triggered (low went below buy target)
+            bought = low_price <= buy_price_target
+            
+            # Calculate sell price target (from buy price)
+            sell_price_target = buy_price_target * (1 + sell_trigger_pct / 100)
+            
+            # Did we hit sell target?
+            sold_at_target = bought and high_price >= sell_price_target
+            
+            shares = 0
+            profit = 0
+            actual_sell_price = None
+            
+            if bought:
+                # Calculate how many shares we can buy
+                buy_price = buy_price_target  # Assume we buy at trigger price
+                shares = int(equity / buy_price) if buy_price > 0 else 0
                 
-                if compound:
-                    equity += profit
-        
-        trade_log.append({
-            "open": open_price,
-            "close": close_price,
-            "high": high_price,
-            "low": low_price,
-            "pct_change": round(pct_change, 2),
-            "bought": bought,
-            "shares": shares,
-            "profit": round(profit, 0),
-            "equity": round(equity, 0)
-        })
+                if shares > 0:
+                    if sold_at_target:
+                        # Sold at target
+                        actual_sell_price = sell_price_target
+                    else:
+                        # Sold at close
+                        actual_sell_price = close_price
+                    
+                    profit = shares * (actual_sell_price - buy_price)
+                    
+                    if compound:
+                        equity += profit
+            
+            trade_log.append({
+                "date": bar_date,
+                "open": round(open_price, 2),
+                "price_9am": round(price_9am, 2) if price_9am else None,
+                "close": round(close_price, 2),
+                "high": round(high_price, 2),
+                "low": round(low_price, 2),
+                "pct_change": round(pct_change_open_close, 2),
+                "bought": bought,
+                "sold_at_target": sold_at_target,
+                "buy_price": round(buy_price_target, 2),
+                "sell_price": round(sell_price_target, 2),
+                "actual_sell": round(actual_sell_price, 2) if actual_sell_price else None,
+                "shares": shares,
+                "profit": round(profit, 0),
+                "equity": round(equity, 0),
+                "algo": "default"
+            })
     
     return trade_log
 
@@ -851,30 +1320,39 @@ async def optimize_stock(
 ) -> Optional[dict]:
     """Optimize a single stock using Bayesian optimization."""
     import time
+    import sys
     start_time = time.time()  # Track how long optimization takes
+    
+    print(f"[OPTIMIZE] Starting optimization for {symbol}, algo={config.algo}", flush=True)
+    sys.stdout.flush()
     
     await broadcast_message({
         "type": "status",
         "job_id": job_id,
         "symbol": symbol,
         "status": "fetching_data",
-        "message": f"Fetching price data for {symbol}..."
+        "message": f"Fetching price data for {symbol} (using cache)..."
     })
     
-    # Fetch price data
+    # Fetch price data with caching
     try:
-        resp = requests.get(
-            f"{PPOALGO_API}/api/prices",
-            params={
-                "symbol": symbol,
-                "start": config.start_date,
-                "end": config.end_date,
-                "timeframe": "1Day"
-            },
-            timeout=30
-        )
-        resp.raise_for_status()
-        bars = resp.json()
+        bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Day")
+        
+        # Fallback to direct API if cache fails
+        if not bars:
+            logger.warning(f"Cache miss for {symbol}, fetching directly")
+            resp = requests.get(
+                f"{PPOALGO_API}/api/prices",
+                params={
+                    "symbol": symbol,
+                    "start": config.start_date,
+                    "end": config.end_date,
+                    "timeframe": "1Day"
+                },
+                timeout=30
+            )
+            resp.raise_for_status()
+            bars = resp.json()
     except Exception as e:
         await broadcast_message({
             "type": "error",
@@ -892,6 +1370,22 @@ async def optimize_stock(
             "message": "No price data available"
         })
         return None
+    
+    # Extract actual data range from bars
+    actual_start_date = bars[0].get("t", "")[:10] if bars else None
+    actual_end_date = bars[-1].get("t", "")[:10] if bars else None
+    data_range_warning = None
+    
+    # Check if actual data range differs from requested range
+    if actual_start_date and actual_start_date > config.start_date:
+        data_range_warning = f"⚠️ Data only available from {actual_start_date}. Requested start {config.start_date} not available (requires Polygon.io paid plan)."
+        await broadcast_message({
+            "type": "warning",
+            "job_id": job_id,
+            "symbol": symbol,
+            "message": data_range_warning
+        })
+        logger.warning(f"Data range mismatch for {symbol}: requested {config.start_date} but actual start is {actual_start_date}")
     
     # Analyze volatility
     analyzer = StockVolatilityAnalyzer(bars)
@@ -1007,7 +1501,12 @@ async def optimize_stock(
                 "n_trials": gpu_result["combinations_tested"],
                 "timestamp": datetime.now().isoformat(),
                 "method": "gpu_grid_search",
-                "duration_seconds": round(time.time() - start_time, 1)
+                "duration_seconds": round(time.time() - start_time, 1),
+                "requested_start_date": config.start_date,
+                "requested_end_date": config.end_date,
+                "actual_start_date": actual_start_date,
+                "actual_end_date": actual_end_date,
+                "data_range_warning": data_range_warning
             }
             
             # Smart Timing Optimization (GPU Path)
@@ -1035,17 +1534,23 @@ async def optimize_stock(
                 })
                 logger.info(f"Smart Timing complete for {symbol}: {optimal_time} CDT")
             
+            # Add algo to result
+            algo_type = getattr(config, 'algo', 'default') or 'default'
+            logger.info(f"[GPU] Generating trade log for {symbol} with algo={algo_type}")
+            result["algo"] = algo_type
+            
             # Generate trade log for Analysis view
             result["trade_log"] = generate_trade_log(
                 bars,
                 result["best_params"]["buy_trigger_pct"],
                 result["best_params"]["sell_trigger_pct"],
                 result["best_params"]["compound"],
-                config.capital
+                config.capital,
+                algo=algo_type,
+                symbol=symbol,
+                start_date=config.start_date,
+                end_date=config.end_date
             )
-            
-            # Add algo to result
-            result["algo"] = config.algo if hasattr(config, 'algo') else "Default"
             
             # Save result to database
             save_result_to_db(job_id, result)
@@ -1186,7 +1691,12 @@ async def optimize_stock(
         "n_trials": config.n_trials,
         "timestamp": datetime.now().isoformat(),
         "method": "cpu_optuna",
-        "duration_seconds": round(time.time() - start_time, 1)  # How long this stock took
+        "duration_seconds": round(time.time() - start_time, 1),
+        "requested_start_date": config.start_date,
+        "requested_end_date": config.end_date,
+        "actual_start_date": actual_start_date,
+        "actual_end_date": actual_end_date,
+        "data_range_warning": data_range_warning
     }
     
     # Smart Timing Optimization (Phase 2)
@@ -1221,17 +1731,23 @@ async def optimize_stock(
         # are available but disabled until intraday data API is confirmed working
         # The simple approach above provides reliable, research-based timing
 
+    # Add algo to result
+    algo_type = getattr(config, 'algo', 'default') or 'default'
+    logger.info(f"Generating trade log for {symbol} with algo={algo_type}")
+    result["algo"] = algo_type
+    
     # Generate trade log for Analysis view
     result["trade_log"] = generate_trade_log(
         bars,
         result["best_params"]["buy_trigger_pct"],
         result["best_params"]["sell_trigger_pct"],
         result["best_params"]["compound"],
-        config.capital
+        config.capital,
+        algo=algo_type,
+        symbol=symbol,
+        start_date=config.start_date,
+        end_date=config.end_date
     )
-    
-    # Add algo to result
-    result["algo"] = config.algo if hasattr(config, 'algo') else "Default"
     
     # Save result to database
     save_result_to_db(job_id, result)
@@ -1358,6 +1874,120 @@ async def get_analysis(history_id: int):
             return RedirectResponse(url=frontend_url)
     except Exception as e:
         logger.error(f"Analysis error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.get("/api/price-cache/check/{symbol}")
+async def check_symbol_cache(symbol: str):
+    """Check if a symbol has cached price data."""
+    conn = get_db_conn()
+    if not conn:
+        return {"cached": False, "symbol": symbol.upper()}
+    
+    try:
+        with conn.cursor() as cur:
+            # Check price_cache_meta
+            cur.execute("""
+                SELECT timeframe, min_date, max_date, bar_count
+                FROM price_cache_meta
+                WHERE symbol = %s
+            """, (symbol.upper(),))
+            rows = cur.fetchall()
+            
+            cache_info = []
+            for row in rows:
+                cache_info.append({
+                    "timeframe": row[0],
+                    "min_date": row[1].isoformat() if row[1] else None,
+                    "max_date": row[2].isoformat() if row[2] else None,
+                    "bar_count": row[3]
+                })
+            
+            # Also check legacy market_daily_bars
+            cur.execute("""
+                SELECT MIN(bar_date), MAX(bar_date), COUNT(*)
+                FROM market_daily_bars
+                WHERE ticker = %s
+            """, (symbol.upper(),))
+            legacy_row = cur.fetchone()
+            if legacy_row and legacy_row[0]:
+                cache_info.append({
+                    "timeframe": "1Day (legacy)",
+                    "min_date": legacy_row[0].isoformat() if legacy_row[0] else None,
+                    "max_date": legacy_row[1].isoformat() if legacy_row[1] else None,
+                    "bar_count": legacy_row[2]
+                })
+            
+            return {
+                "cached": len(cache_info) > 0,
+                "symbol": symbol.upper(),
+                "data": cache_info
+            }
+    except Exception as e:
+        logger.error(f"Failed to check cache for {symbol}: {e}")
+        return {"cached": False, "symbol": symbol.upper(), "error": str(e)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/price-cache")
+async def get_price_cache_status():
+    """Get price cache status for all symbols."""
+    conn = get_db_conn()
+    if not conn:
+        return {"error": "Database connection failed"}
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT symbol, timeframe, min_date, max_date, bar_count, last_updated
+                FROM price_cache_meta
+                ORDER BY symbol, timeframe
+            """)
+            rows = cur.fetchall()
+            
+            cache_info = []
+            for row in rows:
+                cache_info.append({
+                    "symbol": row[0],
+                    "timeframe": row[1],
+                    "min_date": row[2].isoformat() if row[2] else None,
+                    "max_date": row[3].isoformat() if row[3] else None,
+                    "bar_count": row[4],
+                    "last_updated": row[5].isoformat() if row[5] else None
+                })
+            
+            return {"cache": cache_info}
+    except Exception as e:
+        logger.error(f"Failed to get cache status: {e}")
+        return {"error": str(e)}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/price-cache/{symbol}")
+async def clear_price_cache(symbol: str, timeframe: str = None):
+    """Clear price cache for a symbol."""
+    conn = get_db_conn()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+    
+    try:
+        with conn.cursor() as cur:
+            if timeframe:
+                cur.execute("DELETE FROM price_cache WHERE symbol = %s AND timeframe = %s", 
+                           (symbol.upper(), timeframe))
+                cur.execute("DELETE FROM price_cache_meta WHERE symbol = %s AND timeframe = %s", 
+                           (symbol.upper(), timeframe))
+            else:
+                cur.execute("DELETE FROM price_cache WHERE symbol = %s", (symbol.upper(),))
+                cur.execute("DELETE FROM price_cache_meta WHERE symbol = %s", (symbol.upper(),))
+        conn.commit()
+        return {"status": "ok", "message": f"Cache cleared for {symbol}"}
+    except Exception as e:
+        logger.error(f"Failed to clear cache: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()

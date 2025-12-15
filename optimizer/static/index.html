@@ -309,6 +309,10 @@
             color: var(--danger);
         }
 
+        .log-entry.warning {
+            color: var(--warning);
+        }
+
         .log-tabs {
             display: flex;
             gap: 0;
@@ -346,7 +350,7 @@
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 1rem;
-            max-height: 200px;
+            max-height: 500px;
             overflow-y: auto;
             font-family: monospace;
             font-size: 0.8rem;
@@ -435,6 +439,75 @@
             background: var(--bg-input);
             color: var(--text-secondary);
             border: 1px solid var(--border);
+        }
+
+        /* DB Cache Icon */
+        .db-cache-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            margin-left: 8px;
+            vertical-align: middle;
+            animation: db-pulse 2s ease-in-out infinite;
+        }
+
+        .db-cache-icon.loading {
+            background: var(--bg-input);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            animation: none;
+        }
+
+        .db-cache-icon.no-cache {
+            display: none;
+        }
+
+        @keyframes db-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .symbol-input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .symbol-input-wrapper input {
+            flex: 1;
+        }
+
+        .cache-tooltip {
+            position: absolute;
+            right: 0;
+            top: 100%;
+            margin-top: 4px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            z-index: 100;
+            white-space: nowrap;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .cache-tooltip::before {
+            content: '';
+            position: absolute;
+            top: -6px;
+            right: 12px;
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-bottom: 6px solid var(--border);
         }
 
         /* History Panel Styles */
@@ -787,8 +860,11 @@
             </div>
 
             <div class="form-group">
-                <label>Stock Symbols (comma-separated)</label>
-                <input type="text" id="symbols" value="TSLA" placeholder="TSLA, NVDA, AAPL" />
+                <label>Stock Symbols (comma-separated) <span id="db-cache-indicator" class="db-cache-icon no-cache" title="Data cached in DB">💾 DB</span></label>
+                <div class="symbol-input-wrapper">
+                    <input type="text" id="symbols" value="TSLA" placeholder="TSLA, NVDA, AAPL" oninput="checkSymbolCache()" />
+                </div>
+                <div id="cache-info" style="display: none; margin-top: 6px; padding: 6px 8px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; font-size: 0.7rem; color: var(--success); border-left: 3px solid #10b981;"></div>
                 <div
                     style="margin-top: 8px; padding: 10px; background: rgba(29, 155, 240, 0.1); border-radius: 8px; border-left: 3px solid var(--accent);">
                     <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px;">Quick Keywords:
@@ -974,6 +1050,80 @@
             return value.toFixed(decimals);
         }
 
+        // Cache check debounce timer
+        let cacheCheckTimer = null;
+        let cachedSymbols = {};
+
+        // Check if symbol data is cached in database
+        async function checkSymbolCache() {
+            const input = document.getElementById('symbols').value.trim().toUpperCase();
+            const indicator = document.getElementById('db-cache-indicator');
+            const cacheInfo = document.getElementById('cache-info');
+            
+            // Skip keywords
+            if (['ALL', 'CAP', 'FULL'].includes(input)) {
+                indicator.className = 'db-cache-icon no-cache';
+                cacheInfo.style.display = 'none';
+                return;
+            }
+
+            // Get first symbol only for single check
+            const symbol = input.split(',')[0].trim();
+            if (!symbol || symbol.length < 1) {
+                indicator.className = 'db-cache-icon no-cache';
+                cacheInfo.style.display = 'none';
+                return;
+            }
+
+            // Debounce
+            clearTimeout(cacheCheckTimer);
+            cacheCheckTimer = setTimeout(async () => {
+                try {
+                    // Show loading state
+                    indicator.className = 'db-cache-icon loading';
+                    indicator.innerHTML = '⏳';
+                    indicator.title = 'Checking cache...';
+
+                    const response = await fetch(`/api/price-cache/check/${symbol}`);
+                    const data = await response.json();
+
+                    if (data.cached && data.data && data.data.length > 0) {
+                        // Show cached indicator
+                        indicator.className = 'db-cache-icon';
+                        indicator.innerHTML = '💾 DB';
+                        
+                        // Build cache info text
+                        const dailyData = data.data.find(d => d.timeframe === '1Day' || d.timeframe === '1Day (legacy)');
+                        if (dailyData) {
+                            indicator.title = `${symbol} cached: ${dailyData.min_date} to ${dailyData.max_date} (${dailyData.bar_count} bars)`;
+                            cacheInfo.innerHTML = `<strong>💾 ${symbol}</strong> data cached: ${dailyData.min_date} → ${dailyData.max_date} <span style="color: var(--text-secondary);">(${dailyData.bar_count} days)</span>`;
+                            cacheInfo.style.display = 'block';
+                        } else {
+                            indicator.title = `${symbol} has cached data`;
+                            cacheInfo.style.display = 'none';
+                        }
+                        
+                        // Store for later use
+                        cachedSymbols[symbol] = data.data;
+                    } else {
+                        // No cache
+                        indicator.className = 'db-cache-icon no-cache';
+                        cacheInfo.style.display = 'none';
+                        delete cachedSymbols[symbol];
+                    }
+                } catch (e) {
+                    console.error('Cache check failed:', e);
+                    indicator.className = 'db-cache-icon no-cache';
+                    cacheInfo.style.display = 'none';
+                }
+            }, 300);
+        }
+
+        // Check cache on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(checkSymbolCache, 500);
+        });
+
         // Switch between Status and Analysis tabs
         function switchLogTab(tab) {
             const statusTab = document.getElementById('tab-status');
@@ -994,6 +1144,12 @@
             }
         }
 
+        // Trade log state for sorting
+        let currentTradeLog = [];
+        let currentTradeLogMeta = {};
+        let tradeLogSortColumn = 'day';
+        let tradeLogSortAsc = true;
+
         // Update Analysis tab with detailed algorithm results
         function updateAnalysisView(result) {
             const container = document.getElementById('analysis');
@@ -1006,38 +1162,79 @@
             const m = result.metrics || {};
             const p = result.best_params || {};
             const tradeLog = result.trade_log || [];
+            
+            // Store for sorting
+            currentTradeLog = tradeLog.map((t, i) => ({ ...t, day: i + 1 }));
+            currentTradeLogMeta = {
+                symbol: result.symbol,
+                params: p,
+                metrics: m,
+                start_date: result.start_date,
+                end_date: result.end_date
+            };
+            tradeLogSortColumn = 'day';
+            tradeLogSortAsc = true;
+
+            renderAnalysisView();
+        }
+
+        function renderAnalysisView() {
+            const container = document.getElementById('analysis');
+            const p = currentTradeLogMeta.params || {};
+            const m = currentTradeLogMeta.metrics || {};
+            const tradeLog = currentTradeLog;
+            const startDate = currentTradeLogMeta.start_date || '';
+            const endDate = currentTradeLogMeta.end_date || '';
+            const dateRange = (startDate && endDate) ? `${startDate} → ${endDate}` : '';
 
             // Build trade log table HTML
             let tradeLogHtml = '';
             if (tradeLog.length > 0) {
+                const sortIcon = (col) => tradeLogSortColumn === col ? (tradeLogSortAsc ? ' ▲' : ' ▼') : '';
+                const thStyle = 'padding: 6px 8px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap;';
+                const tdStyle = 'padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.05);';
+                
+                // Check if this is ChatGPT algo (has price_9am data)
+                const isChatGPT = tradeLog.some(t => t.algo === 'chatgpt' || t.price_9am != null);
+                
                 tradeLogHtml = `
                     <div style="margin-top: 0.75rem;">
-                        <div style="color: var(--accent); font-weight: 600; font-size: 0.75rem; margin-bottom: 0.3rem;">📋 Trade Log (${tradeLog.length} days)</div>
-                        <div style="max-height: 600px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px;">
-                            <table style="width: 100%; font-size: 0.6rem; border-collapse: collapse;">
-                                <thead style="background: var(--bg-card); position: sticky; top: 0;">
+                        <div style="color: var(--accent); font-weight: 600; font-size: 0.75rem; margin-bottom: 0.3rem;">
+                            📊 Trade Log with Buy/Sell Guidance <span style="color: var(--text-secondary); font-weight: 400; font-size: 0.65rem;">(${tradeLog.length} days) ${dateRange}</span>
+                        </div>
+                        <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px;">
+                            <table id="trade-log-table" style="width: 100%; font-size: 0.65rem; border-collapse: collapse;">
+                                <thead style="background: var(--bg-card); position: sticky; top: 0; z-index: 1;">
                                     <tr>
-                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: left;">Day</th>
-                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: center;">Buy?</th>
-                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">Open</th>
-                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">Close</th>
-                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">% Chg</th>
-                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">Shares</th>
-                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">Profit</th>
-                                        <th style="padding: 4px; border-bottom: 1px solid var(--border); text-align: right;">Equity</th>
+                                        <th style="${thStyle} text-align: left;" onclick="sortTradeLog('date')">Date${sortIcon('date')}</th>
+                                        <th style="${thStyle} text-align: center;" onclick="sortTradeLog('bought')">Buy?${sortIcon('bought')}</th>
+                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('open')">Open${sortIcon('open')}</th>
+                                        ${isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('price_9am')">9AM Price${sortIcon('price_9am')}</th>` : ''}
+                                        ${isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_change_9am')">9AM Δ %${sortIcon('pct_change_9am')}</th>` : ''}
+                                        ${!isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('buy_price')">Buy @${sortIcon('buy_price')}</th>` : ''}
+                                        ${!isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_change')">% vs Open${sortIcon('pct_change')}</th>` : ''}
+                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('close')">Close${sortIcon('close')}</th>
+                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_to_close')">% @ Close${sortIcon('pct_to_close')}</th>
+                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('sell_price')">Sell @${sortIcon('sell_price')}</th>
+                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('profit')">Profit${sortIcon('profit')}</th>
+                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('equity')">Equity${sortIcon('equity')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${tradeLog.map((t, i) => `
-                                        <tr style="background: ${t.bought ? 'rgba(0,200,100,0.1)' : 'transparent'};">
-                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05);">${i + 1}</td>
-                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: center;">${t.bought ? '✅' : '❌'}</td>
-                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right;">$${t.open?.toFixed(2) || 'N/A'}</td>
-                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right;">$${t.close?.toFixed(2) || 'N/A'}</td>
-                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; color: ${t.pct_change >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.pct_change >= 0 ? '+' : ''}${t.pct_change?.toFixed(2) || 0}%</td>
-                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right;">${t.shares || 0}</td>
-                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; color: ${t.profit >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.profit >= 0 ? '+' : ''}$${t.profit?.toFixed(0) || 0}</td>
-                                            <td style="padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right;">$${t.equity?.toLocaleString() || 'N/A'}</td>
+                                    ${tradeLog.map((t) => `
+                                        <tr style="background: ${t.bought ? (t.sold_at_target ? 'rgba(0,200,100,0.15)' : 'rgba(0,200,100,0.08)') : 'transparent'};">
+                                            <td style="${tdStyle} color: var(--text-secondary);">${t.date ? t.date.substring(0, 10) : ''}</td>
+                                            <td style="${tdStyle} text-align: center;">${t.bought ? '✅' : '❌'}</td>
+                                            <td style="${tdStyle} text-align: right;">$${t.open?.toFixed(2) || 'N/A'}</td>
+                                            ${isChatGPT ? `<td style="${tdStyle} text-align: right; color: var(--accent);">${t.price_9am ? '$' + t.price_9am.toFixed(2) : '—'}</td>` : ''}
+                                            ${isChatGPT ? `<td style="${tdStyle} text-align: right; color: ${(t.pct_change_9am || 0) >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.pct_change_9am != null ? ((t.pct_change_9am >= 0 ? '+' : '') + t.pct_change_9am.toFixed(2) + '%') : '—'}</td>` : ''}
+                                            ${!isChatGPT ? `<td style="${tdStyle} text-align: right; color: var(--accent);">${t.bought ? '$' + t.buy_price?.toFixed(2) : '—'}</td>` : ''}
+                                            ${!isChatGPT ? `<td style="${tdStyle} text-align: right; color: ${t.pct_change >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.pct_change >= 0 ? '+' : ''}${t.pct_change?.toFixed(2) || 0}%</td>` : ''}
+                                            <td style="${tdStyle} text-align: right;">$${t.close?.toFixed(2) || 'N/A'}</td>
+                                            <td style="${tdStyle} text-align: right; color: ${(() => { const buyP = t.price_9am || t.buy_price; const pct = buyP && t.close ? ((t.close - buyP) / buyP * 100) : null; return pct != null ? (pct >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--text-secondary)'; })()};">${(() => { const buyP = t.price_9am || t.buy_price; const pct = buyP && t.close ? ((t.close - buyP) / buyP * 100) : null; return pct != null ? ((pct >= 0 ? '+' : '') + pct.toFixed(2) + '%') : '—'; })()}</td>
+                                            <td style="${tdStyle} text-align: right; color: ${t.sold_at_target ? 'var(--success)' : 'var(--text-secondary)'};">${t.bought ? (t.sold_at_target ? '$' + t.sell_price?.toFixed(2) + ' ✓' : '$' + (t.actual_sell?.toFixed(2) || t.close?.toFixed(2))) : '—'}</td>
+                                            <td style="${tdStyle} text-align: right; color: ${(t.profit || 0) >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.bought ? ((t.profit || 0) >= 0 ? '+' : '') + '$' + (t.profit?.toFixed(0) || 0) : '—'}</td>
+                                            <td style="${tdStyle} text-align: right; font-weight: 500;">$${t.equity?.toLocaleString() || 'N/A'}</td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -1056,7 +1253,7 @@
             container.innerHTML = `
                 <div style="padding: 0.5rem;">
                     <div style="color: var(--accent); font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">
-                        📊 ${result.symbol} Optimization Analysis
+                        📊 ${currentTradeLogMeta.symbol} Optimization Analysis
                     </div>
                     
                     <div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(29, 155, 240, 0.1); border-radius: 6px;">
@@ -1070,6 +1267,38 @@
                     ${tradeLogHtml}
                 </div>
             `;
+        }
+
+        function sortTradeLog(column) {
+            if (tradeLogSortColumn === column) {
+                tradeLogSortAsc = !tradeLogSortAsc;
+            } else {
+                tradeLogSortColumn = column;
+                tradeLogSortAsc = true;
+            }
+
+            currentTradeLog.sort((a, b) => {
+                let valA = a[column];
+                let valB = b[column];
+                
+                // Handle booleans
+                if (typeof valA === 'boolean') {
+                    valA = valA ? 1 : 0;
+                    valB = valB ? 1 : 0;
+                }
+                
+                // Handle nulls
+                if (valA == null) valA = 0;
+                if (valB == null) valB = 0;
+
+                if (tradeLogSortAsc) {
+                    return valA > valB ? 1 : valA < valB ? -1 : 0;
+                } else {
+                    return valA < valB ? 1 : valA > valB ? -1 : 0;
+                }
+            });
+
+            renderAnalysisView();
         }
 
         // Format time as MM:SS or HH:MM:SS
@@ -1216,6 +1445,9 @@
         // Load history from database
         async function loadHistory() {
             try {
+                // Load cached symbols list first
+                await loadCachedSymbolsList();
+                
                 const resp = await fetch('/api/history');
                 historyData = await resp.json();
                 // Update counter
@@ -1286,6 +1518,21 @@
         }
 
         // Render history list
+        // Track which symbols have cached data
+        let cachedSymbolsList = new Set();
+        
+        async function loadCachedSymbolsList() {
+            try {
+                const resp = await fetch('/api/price-cache');
+                const data = await resp.json();
+                if (data.cache) {
+                    cachedSymbolsList = new Set(data.cache.map(c => c.symbol));
+                }
+            } catch (e) {
+                console.error('Failed to load cached symbols list:', e);
+            }
+        }
+
         function renderHistory(history) {
             const container = document.getElementById('history-list');
 
@@ -1304,6 +1551,9 @@
                 const setIcon = item.smart_timing
                     ? '<span class="gpu-icon" style="background: linear-gradient(135deg, #9333ea, #7c3aed); margin-top: 2px;" title="Smart Entry Timing">SET</span>'
                     : '';
+                const dbIcon = cachedSymbolsList.has(item.symbol.toUpperCase())
+                    ? '<span class="gpu-icon" style="background: linear-gradient(135deg, #10b981, #059669); margin-top: 2px;" title="Data Cached in DB">DB</span>'
+                    : '';
                 const algoName = item.algo || 'Default';
                 const algoBadge = `<span style="font-size: 0.55rem; color: #ff6b6b; margin-left: 0.3rem; font-weight: 600;">${algoName}</span>`;
                 return `
@@ -1311,6 +1561,7 @@
                     <div style="display: flex; flex-direction: column; gap: 2px;">
                         ${gpuIcon}
                         ${setIcon}
+                        ${dbIcon}
                     </div>
                     <div class="history-item-content" onclick="showHistoryDetail(${JSON.stringify(item).replace(/"/g, '&quot;')})">
                         <div class="history-symbol">${item.symbol}${algoBadge}</div>
@@ -1428,6 +1679,12 @@
                         <div class="metric-label">${item.optimized_for || 'Score'}</div>
                         <div class="metric-value ${item.score > 0 ? 'positive' : 'negative'}">${sanitizeValue(item.score, false, 2)}</div>
                     </div>
+                    ${item.optimized_for !== 'win_rate' ? `
+                    <div class="metric">
+                        <div class="metric-label">Win %</div>
+                        <div class="metric-value ${(item.win_rate && parseFloat(item.win_rate) > 0.5) ? 'positive' : ''}">${item.win_rate ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'}</div>
+                    </div>
+                    ` : ''}
                     <div class="metric">
                         <div class="metric-label">Trials</div>
                         <div class="metric-value">${item.n_trials || 'N/A'}</div>
@@ -1453,6 +1710,8 @@
                 n_trials: item.n_trials,
                 optimized_for: item.optimized_for || 'sharpe',
                 duration_seconds: item.duration_seconds,
+                start_date: item.start_date,
+                end_date: item.end_date,
                 best_params: {
                     buy_trigger_pct: item.buy_trigger_pct,
                     sell_trigger_pct: item.sell_trigger_pct,
@@ -1466,8 +1725,9 @@
                 metrics: {
                     win_rate: item.win_rate
                 },
-                trade_log: item.trade_log
+                trade_log: item.trade_log || []
             });
+            switchLogTab('analysis');
 
             log(`Showing history for ${item.symbol} from ${formatDate(item.created_at)}`, 'info');
         }
@@ -1524,6 +1784,9 @@
                 case 'progress':
                     updateProgress(data);
                     break;
+                case 'warning':
+                    showWarning(data);
+                    break;
                 case 'complete':
                     showComplete(data);
                     loadHistory(); // Refresh history after completion
@@ -1538,6 +1801,27 @@
                     hideGlobalProgress();
                     loadHistory();
                     break;
+            }
+        }
+        
+        function showWarning(data) {
+            log(`[${data.symbol}] ${data.message}`, 'warning');
+            
+            // Store warning for display in results
+            if (!window.dataRangeWarnings) window.dataRangeWarnings = {};
+            window.dataRangeWarnings[data.symbol] = data.message;
+            
+            // Show warning in the card if it exists
+            const card = document.getElementById(`card-${data.symbol}`);
+            if (card) {
+                let warningEl = card.querySelector('.data-range-warning');
+                if (!warningEl) {
+                    warningEl = document.createElement('div');
+                    warningEl.className = 'data-range-warning';
+                    warningEl.style.cssText = 'background: rgba(255, 173, 31, 0.15); border: 1px solid var(--warning); border-radius: 6px; padding: 8px; margin: 8px 0; font-size: 0.75rem; color: var(--warning);';
+                    card.insertBefore(warningEl, card.querySelector('.params-display'));
+                }
+                warningEl.innerHTML = data.message;
             }
         }
 
@@ -1664,12 +1948,17 @@
 
                 const metrics = card.querySelector('.result-metrics');
                 if (metrics) {
-                    const score = r.metrics[document.getElementById('metric').value];
+                    const metricType = document.getElementById('metric').value;
+                    const score = r.metrics[metricType];
+                    const winRate = r.metrics.win_rate;
                     const duration = r.duration_seconds || 0;
                     const durationText = duration >= 60 ? `${Math.floor(duration / 60)}m ${Math.round(duration % 60)}s` : `${duration.toFixed(1)}s`;
                     const sanitizedScore = sanitizeValue(score, false, 2);
+                    const winRateDisplay = (winRate != null && winRate !== -999999 && !isNaN(winRate)) ? `${(winRate * 100).toFixed(0)}%` : 'N/A';
+                    const showWinRate = metricType !== 'win_rate';
                     metrics.innerHTML = `
-            <div class="metric"><div class="metric-label">${document.getElementById('metric').value}</div><div class="metric-value ${(score != null && score !== -999999 && score > 0) ? 'positive' : 'negative'}">${sanitizedScore}</div></div>
+            <div class="metric"><div class="metric-label">${metricType}</div><div class="metric-value ${(score != null && score !== -999999 && score > 0) ? 'positive' : 'negative'}">${sanitizedScore}</div></div>
+            ${showWinRate ? `<div class="metric"><div class="metric-label">Win %</div><div class="metric-value ${(winRate != null && winRate > 0.5) ? 'positive' : ''}">${winRateDisplay}</div></div>` : ''}
             <div class="metric"><div class="metric-label">Duration</div><div class="metric-value" style="color: var(--accent);">⏱️ ${durationText}</div></div>
           `;
                 }
@@ -1681,6 +1970,8 @@
                 n_trials: data.result.n_trials || data.result.trials_count,
                 optimized_for: document.getElementById('metric').value,
                 duration_seconds: data.result.duration_seconds,
+                start_date: document.getElementById('start-date').value,
+                end_date: document.getElementById('end-date').value,
                 best_params: data.result.best_params,
                 volatility_profile: data.result.volatility_profile,
                 metrics: data.result.metrics,
