@@ -1,0 +1,41 @@
+# GPU-enabled optimizer with CUDA support
+FROM nvidia/cuda:12.2.2-devel-ubuntu22.04
+
+# Install Python
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install dependencies including CuPy for GPU acceleration
+RUN pip3 install --no-cache-dir \
+    fastapi \
+    uvicorn[standard] \
+    optuna \
+    requests \
+    numpy \
+    websockets \
+    psycopg2-binary \
+    cupy-cuda12x
+
+# Copy application files
+COPY server.py /app/
+COPY gpu_backtest.py /app/
+COPY gpu_warmup.py /app/
+COPY static /app/static/
+
+# Create results directory
+RUN mkdir -p /app/results
+
+# Create startup script that warms up GPU before starting server
+RUN echo '#!/bin/bash\necho "Running GPU warmup..."\npython3 /app/gpu_warmup.py\necho "Starting server..."\nexec uvicorn server:app --host 0.0.0.0 --port 8000' > /app/start.sh && chmod +x /app/start.sh
+
+EXPOSE 8000
+
+# Set CUDA environment
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+CMD ["/bin/bash", "/app/start.sh"]

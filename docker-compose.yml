@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  ppoalgo:
+    build: .
+    working_dir: /app
+    command: [ "python", "scripts/train_lstm.py" ]
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+
+  api:
+    build: .
+    working_dir: /app
+    command: [ "uvicorn", "backend.server:app", "--host", "0.0.0.0", "--port", "8000" ]
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+    ports:
+      - "8010:8000"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8081:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+
+  optimizer:
+    build: ./optimizer
+    ports:
+      - "8082:8000"
+    environment:
+      - PPOALGO_API=http://api:8000
+    depends_on:
+      - api
+    volumes:
+      - ./optimizer/results:/app/results
+      - ./optimizer/static:/app/static
+      - ./optimizer/server.py:/app/server.py
+
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ppoalgo}
+      POSTGRES_USER: ${POSTGRES_USER:-ppoalgo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ppoalgo}
+    ports:
+      - "5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+volumes:
+  db-data:
+
+

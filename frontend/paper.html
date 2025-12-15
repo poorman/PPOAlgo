@@ -1,0 +1,2257 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Paper Trading - PPOAlgo</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Paper Trading Page Specific Styles */
+        .paper-page {
+            min-height: 100vh;
+            padding: 20px;
+            background: var(--bg);
+        }
+
+        .paper-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .paper-header .back-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.2s;
+        }
+
+        .paper-header .back-btn:hover {
+            color: var(--text);
+        }
+
+        .paper-header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            background: linear-gradient(90deg, #10b981, #3b82f6);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .paper-layout {
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            gap: 24px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        @media (max-width: 1024px) {
+            .paper-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Portfolio Summary Header */
+        .portfolio-summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding: 16px 20px;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(59, 130, 246, 0.08));
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            margin-bottom: 24px;
+            max-width: 1400px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .summary-item {
+            flex: 1;
+            min-width: 120px;
+            text-align: center;
+            padding: 8px 12px;
+            background: var(--card);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .summary-item .label {
+            font-size: 0.7rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }
+
+        .summary-item .value {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .summary-item .value.positive {
+            color: var(--accent);
+        }
+
+        .summary-item .value.negative {
+            color: var(--danger);
+        }
+
+        .summary-item .subtext {
+            font-size: 0.7rem;
+            color: var(--muted);
+            margin-top: 2px;
+        }
+
+        .market-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            justify-content: center;
+        }
+
+        .market-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--muted);
+        }
+
+        .market-dot.open {
+            background: var(--accent);
+            animation: pulse-connected 2s infinite;
+        }
+
+        .market-dot.pre-market,
+        .market-dot.after-hours {
+            background: var(--warn);
+        }
+
+        .market-dot.closed {
+            background: var(--danger);
+        }
+
+        .paper-sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .paper-main {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .paper-card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+        }
+
+        .paper-card h2 {
+            margin: 0 0 20px 0;
+            font-size: 1.1rem;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .paper-card h2 .emoji {
+            font-size: 1.25rem;
+        }
+
+        /* Connection Status */
+        .connection-card {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), transparent);
+        }
+
+        .connection-status-large {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .status-indicator {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .status-indicator.disconnected {
+            background: var(--danger);
+            box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+        }
+
+        .status-indicator.connected {
+            background: var(--accent);
+            box-shadow: 0 0 12px rgba(34, 197, 94, 0.5);
+            animation: pulse-connected 2s infinite;
+        }
+
+        .status-indicator.connecting {
+            background: var(--warn);
+            animation: pulse-connecting 1s infinite;
+        }
+
+        .status-text {
+            flex-grow: 1;
+        }
+
+        .status-text .label {
+            font-size: 0.8rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .status-text .value {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        /* Trading Controls */
+        .trading-controls {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        .trading-controls button {
+            flex: 1;
+        }
+
+        .btn-start-trading {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--accent);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-start-trading:hover:not(:disabled) {
+            background: rgba(16, 185, 129, 0.2);
+            border-color: var(--accent);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .btn-start-trading:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--border);
+            color: var(--muted);
+        }
+
+        .btn-stop-trading {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-stop-trading:hover {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: var(--danger);
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+            transform: translateY(-1px);
+        }
+
+        /* Live Stats Dashboard */
+        .live-dashboard {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+        }
+
+        @media (max-width: 768px) {
+            .live-dashboard {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .stat-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .stat-card .stat-label {
+            font-size: 0.8rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+
+        .stat-card .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .stat-card .stat-value.positive {
+            color: var(--accent);
+        }
+
+        .stat-card .stat-value.negative {
+            color: var(--danger);
+        }
+
+        .stat-card .stat-value.running {
+            color: var(--warn);
+        }
+
+        /* Activity Log */
+        .activity-log {
+            background: #0b1222;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: "JetBrains Mono", monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .log-entry.info {
+            color: var(--muted);
+        }
+
+        .log-entry.success {
+            color: var(--accent);
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .log-entry.error {
+            color: var(--danger);
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .log-entry.trade {
+            color: var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .log-time {
+            color: var(--muted);
+            margin-right: 10px;
+        }
+
+        /* Error Message */
+        .error-banner {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .error-banner.visible {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .error-banner .error-icon {
+            font-size: 1.25rem;
+        }
+
+        .error-banner .error-content {
+            flex-grow: 1;
+        }
+
+        .error-banner .error-title {
+            font-weight: 600;
+            color: var(--danger);
+            margin-bottom: 4px;
+        }
+
+        .error-banner .error-message {
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .error-banner .error-close {
+            background: none;
+            border: none;
+            color: var(--muted);
+            cursor: pointer;
+            font-size: 1.25rem;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .error-banner .error-close:hover {
+            color: var(--danger);
+        }
+
+        /* Form improvements */
+        .paper-card .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .paper-card .form-grid label {
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+
+        .paper-card .form-grid input,
+        .paper-card .form-grid select {
+            margin-top: 6px;
+            width: 100%;
+            padding: 12px 14px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.95rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .paper-card .form-grid input:focus,
+        .paper-card .form-grid select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        /* Hidden class */
+        .hidden {
+            display: none !important;
+        }
+
+        /* Tabs */
+        .tab-container {
+            display: flex;
+            gap: 0;
+            margin-bottom: 16px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .tab-btn {
+            padding: 12px 20px;
+            background: transparent;
+            border: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--muted);
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            color: var(--text);
+        }
+
+        .tab-btn.active {
+            color: var(--primary);
+        }
+
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--primary);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Trades Table */
+        .trades-table-container {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .trades-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        .trades-table th {
+            text-align: left;
+            padding: 10px 12px;
+            background: var(--card);
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 0.05em;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        .trades-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        .trades-table tr:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .trade-buy {
+            color: var(--accent) !important;
+            font-weight: 600;
+        }
+
+        .trade-sell {
+            color: var(--danger) !important;
+            font-weight: 600;
+        }
+
+        .trades-empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--muted);
+        }
+
+        .trades-empty .emoji {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+
+        /* Running Algorithms Section */
+        .running-algos-card {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), transparent);
+        }
+
+        /* Algo List */
+        .algo-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        /* Algo Item - Use grid for precise control */
+        .algo-item {
+            display: grid;
+            grid-template-columns: 70px minmax(200px, 1fr) auto auto auto auto;
+            grid-template-rows: auto auto;
+            align-items: center;
+            gap: 8px 20px;
+            padding: 12px 16px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .algo-item:hover {
+            border-color: var(--primary);
+            background: rgba(59, 130, 246, 0.03);
+        }
+
+        /* Symbol - Column 1 */
+        .algo-symbol {
+            grid-column: 1;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        /* Details - Column 2 */
+        .algo-details {
+            grid-column: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .algo-strategy {
+            font-size: 0.8rem;
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .algo-params {
+            font-size: 0.7rem;
+            color: var(--muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Hide sparkline for cleaner look */
+        .algo-sparkline {
+            display: none;
+        }
+
+        /* Stats - Column 3 */
+        .algo-stats {
+            grid-column: 3;
+            display: flex;
+            gap: 16px;
+        }
+
+        .algo-stat {
+            text-align: center;
+        }
+
+        .algo-stat-label {
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            color: var(--muted);
+            letter-spacing: 0.02em;
+        }
+
+        .algo-stat-value {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        /* Status - Column 4 */
+        .algo-status {
+            grid-column: 4;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .algo-status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse-connected 2s infinite;
+        }
+
+        .algo-status-text {
+            font-size: 0.75rem;
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        /* P&L - Column 5 */
+        .algo-pnl {
+            grid-column: 5;
+            font-size: 0.9rem;
+            font-weight: 700;
+            min-width: 70px;
+            text-align: right;
+        }
+
+        .algo-pnl.positive {
+            color: var(--accent);
+        }
+
+        .algo-pnl.negative {
+            color: var(--danger);
+        }
+
+        /* Actions - Column 6 */
+        .algo-actions {
+            grid-column: 6;
+            display: flex;
+            gap: 4px;
+        }
+
+        /* Compact Action Buttons */
+        .btn-stop-algo,
+        .btn-pause-algo,
+        .btn-resume-algo,
+        .btn-clone-algo {
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 0;
+            width: 28px;
+            height: 28px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+        }
+
+        .btn-stop-algo:hover {
+            color: var(--danger);
+            border-color: var(--danger);
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .btn-pause-algo:hover {
+            color: var(--warn);
+            border-color: var(--warn);
+            background: rgba(245, 158, 11, 0.1);
+        }
+
+        .btn-resume-algo:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .btn-clone-algo:hover {
+            color: #6366f1;
+            border-color: #6366f1;
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        /* Expanded Details - spans full width on row 2 */
+        .algo-expanded-details {
+            grid-column: 1 / -1;
+            grid-row: 2;
+            display: none;
+            padding: 10px 0 4px 0;
+            margin-top: 8px;
+            border-top: 1px dashed var(--border);
+        }
+
+        .algo-item.expanded .algo-expanded-details {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 20px;
+            align-items: center;
+        }
+
+        .algo-detail-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.7rem;
+        }
+
+        .algo-detail-label {
+            color: var(--muted);
+        }
+
+        .algo-detail-label::after {
+            content: ':';
+        }
+
+        .algo-detail-value {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .algo-detail-value.enabled {
+            color: var(--accent);
+        }
+
+        .algo-detail-value.disabled {
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        /* Color-coded rows */
+        .algo-item.running {
+            border-left: 3px solid var(--accent);
+        }
+
+        .algo-item.profit {
+            background: linear-gradient(90deg, rgba(16, 185, 129, 0.03), transparent);
+        }
+
+        .algo-item.loss {
+            border-left-color: var(--danger);
+            background: linear-gradient(90deg, rgba(239, 68, 68, 0.03), transparent);
+        }
+
+        .algo-item.paused {
+            opacity: 0.7;
+            border-left: 3px solid var(--warn);
+            background: linear-gradient(90deg, rgba(245, 158, 11, 0.03), transparent);
+        }
+
+        .algo-item.paused .algo-status-dot {
+            background: var(--warn);
+            animation: none;
+        }
+
+        .algo-item.paused .algo-status-text {
+            color: var(--warn);
+        }
+
+        .algo-expand-hint {
+            display: none;
+        }
+
+        .algo-item:hover .algo-expand-hint {
+            opacity: 1;
+        }
+
+        .algo-item.expanded .algo-expand-hint {
+            display: none;
+        }
+
+        .no-algos-message {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--muted);
+        }
+
+        .no-algos-message .emoji {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .no-algos-message p {
+            margin: 0;
+            font-size: 0.95rem;
+        }
+
+        .algo-count-badge {
+            background: var(--primary);
+            color: white;
+            padding: 2px 10px;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        /* Algo item stats */
+        .algo-stats {
+            display: flex;
+            gap: 16px;
+            margin-left: auto;
+            margin-right: 20px;
+        }
+
+        .algo-stat {
+            text-align: center;
+        }
+
+        .algo-stat-label {
+            font-size: 0.7rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .algo-stat-value {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="paper-page">
+        <!-- Header -->
+        <header class="paper-header">
+            <a href="index.html" class="back-btn">
+                ← Back to Dashboard
+            </a>
+            <h1>🚀 Paper Trading</h1>
+            <div></div>
+        </header>
+
+        <!-- Error Banner -->
+        <div id="error-banner" class="error-banner">
+            <span class="error-icon">⚠️</span>
+            <div class="error-content">
+                <div class="error-title" id="error-title">Error</div>
+                <div class="error-message" id="error-message"></div>
+            </div>
+            <button class="error-close" id="error-close">&times;</button>
+        </div>
+
+        <!-- Portfolio Summary Header -->
+        <div class="portfolio-summary" id="portfolio-summary">
+            <div class="summary-item">
+                <div class="label">Today's P&L</div>
+                <div class="value" id="summary-pnl">$0.00</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">Capital Deployed</div>
+                <div class="value" id="summary-capital">$0</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">🏆 Best</div>
+                <div class="value positive" id="summary-best">--</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">📉 Worst</div>
+                <div class="value negative" id="summary-worst">--</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">Positions</div>
+                <div class="value" id="summary-positions">0</div>
+                <div class="subtext" id="summary-sessions">0 algorithms</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">Market</div>
+                <div class="value market-status" id="summary-market">
+                    <span class="market-dot"></span>
+                    <span>--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Layout -->
+        <div class="paper-layout">
+            <!-- Sidebar - Configuration -->
+            <aside class="paper-sidebar">
+                <!-- Connection -->
+                <div class="paper-card connection-card">
+                    <h2><span class="emoji">📡</span> Alpaca Connection</h2>
+
+                    <div class="connection-status-large" id="connection-status">
+                        <div class="status-indicator disconnected" id="status-indicator"></div>
+                        <div class="status-text">
+                            <div class="label">Status</div>
+                            <div class="value" id="status-value">Not Connected</div>
+                        </div>
+                    </div>
+
+                    <div class="form-grid">
+                        <label class="full-width">
+                            API Key ID
+                            <input id="alpaca-key" type="text" placeholder="PKXXXXXXXXXXXXXXXX" />
+                        </label>
+                        <label class="full-width">
+                            Secret Key
+                            <input id="alpaca-secret" type="password" placeholder="Your secret key" />
+                        </label>
+                    </div>
+
+                    <button class="secondary" id="btn-test-connection" style="margin-top: 16px; width: 100%;">
+                        🔌 Test Connection
+                    </button>
+                </div>
+
+                <!-- Strategy Configuration -->
+                <div class="paper-card">
+                    <h2><span class="emoji">📊</span> Strategy Configuration</h2>
+                    <div class="form-grid">
+                        <label>
+                            Algorithm
+                            <select id="paper-algo">
+                                <option value="momentum">Momentum</option>
+                                <option value="ppo" disabled>PPO (Coming Soon)</option>
+                                <option value="lstm" disabled>LSTM (Coming Soon)</option>
+                            </select>
+                        </label>
+                        <label>
+                            Stock Symbol
+                            <input id="paper-symbol" type="text" value="TSLA" />
+                        </label>
+                        <label>
+                            Buy Trigger %
+                            <input id="paper-buy-trigger" type="number" step="0.1" value="2.5" />
+                        </label>
+                        <label>
+                            Sell Trigger %
+                            <input id="paper-sell-trigger" type="number" step="0.1" value="5.0" />
+                        </label>
+                        <label>
+                            Buy Amount ($)
+                            <input id="paper-buy-amount" type="number" value="1000" />
+                        </label>
+                        <label class="toggle-row">
+                            <input type="checkbox" id="paper-compound" />
+                            <span>Compound (reinvest proceeds)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Schedule -->
+                <div class="paper-card">
+                    <h2><span class="emoji">⏰</span> Schedule</h2>
+                    <div class="form-grid">
+                        <label>
+                            Entry Time
+                            <input id="paper-entry-time" type="time" value="09:35" />
+                        </label>
+                        <label>
+                            Exit Time
+                            <input id="paper-exit-time" type="time" value="15:55" />
+                        </label>
+                        <label class="full-width">
+                            Run Duration
+                            <select id="paper-duration">
+                                <option value="1">1 Day</option>
+                                <option value="5" selected>1 Week (5 trading days)</option>
+                                <option value="10">2 Weeks</option>
+                                <option value="21">1 Month</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Risk Management -->
+                <div class="paper-card">
+                    <h2><span class="emoji">⚠️</span> Risk Management</h2>
+                    <div class="form-grid">
+                        <label>
+                            Max Daily Loss ($)
+                            <input id="paper-max-loss" type="number" value="500" />
+                        </label>
+                        <label>
+                            Max Position Size ($)
+                            <input id="paper-max-position" type="number" value="5000" />
+                        </label>
+                        <label class="toggle-row full-width">
+                            <input type="checkbox" id="paper-stop-on-loss" checked />
+                            <span>Stop trading on max loss</span>
+                        </label>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="paper-main">
+                <!-- Trading Controls -->
+                <div class="paper-card">
+                    <h2><span class="emoji">🎮</span> Trading Controls</h2>
+
+                    <div class="trading-controls">
+                        <button class="btn-start-trading" id="btn-start-trading">
+                            ➕ Add Algorithm
+                        </button>
+                        <button class="btn-stop-trading" id="btn-stop-all" style="flex: 0.5;">
+                            ⏹️ Stop All
+                        </button>
+                    </div>
+                    <p style="margin: 12px 0 0; font-size: 0.85rem; color: var(--muted);">
+                        Configure your strategy on the left, then click "Add Algorithm" to start trading.
+                        You can run multiple algorithms simultaneously on different stocks.
+                    </p>
+                </div>
+
+                <!-- Running Algorithms / Trades Tabs -->
+                <div class="paper-card running-algos-card">
+                    <div class="tab-container">
+                        <button class="tab-btn active" onclick="switchTab('algorithms')">
+                            🤖 Algorithms <span class="algo-count-badge" id="algo-count">0</span>
+                        </button>
+                        <button class="tab-btn" onclick="switchTab('trades')">
+                            📊 Trade History
+                        </button>
+                        <button class="tab-btn" onclick="switchTab('analytics')">
+                            📈 Analytics
+                        </button>
+                    </div>
+
+                    <!-- Algorithms Tab -->
+                    <div class="tab-content active" id="tab-algorithms">
+                        <div class="algo-list" id="algo-list">
+                            <div class="no-algos-message" id="no-algos-message">
+                                <div class="emoji">📭</div>
+                                <p>No algorithms running. Start a paper trading session to see it here.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trades Tab -->
+                    <div class="tab-content" id="tab-trades">
+                        <div class="trades-table-container">
+                            <table class="trades-table" id="trades-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Symbol</th>
+                                        <th>Side</th>
+                                        <th>Qty</th>
+                                        <th>Price</th>
+                                        <th>Notional</th>
+                                        <th>P&L</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="trades-tbody">
+                                </tbody>
+                            </table>
+                            <div class="trades-empty" id="trades-empty">
+                                <div class="emoji">📋</div>
+                                <p>No trades yet. Trades will appear here when algorithms execute orders.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Analytics Tab -->
+                    <div class="tab-content" id="tab-analytics">
+                        <div class="analytics-container" style="padding: 10px;">
+                            <div class="chart-container"
+                                style="position: relative; height: 300px; margin-bottom: 24px;">
+                                <canvas id="performanceChart"></canvas>
+                            </div>
+
+                            <h3>🏆 Algorithm Rankings</h3>
+                            <div class="trades-table-container">
+                                <table class="trades-table" id="rankings-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Rank</th>
+                                            <th>Symbol</th>
+                                            <th>Strategy</th>
+                                            <th>Trades</th>
+                                            <th>ROI</th>
+                                            <th>Total P&L</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rankings-tbody">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Dashboard -->
+                <div class="paper-card">
+                    <h2><span class="emoji">📈</span> Live Trading Status</h2>
+
+                    <div class="live-dashboard">
+                        <div class="stat-card">
+                            <div class="stat-label">Status</div>
+                            <div class="stat-value" id="live-status">Idle</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Today's P&L</div>
+                            <div class="stat-value" id="live-pnl">$0.00</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Open Position</div>
+                            <div class="stat-value" id="live-position">None</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Trades Today</div>
+                            <div class="stat-value" id="live-trades">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Buying Power</div>
+                            <div class="stat-value" id="live-buying-power">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Session ID</div>
+                            <div class="stat-value" id="live-session-id">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Algorithm</div>
+                            <div class="stat-value" id="live-algorithm">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Symbol</div>
+                            <div class="stat-value" id="live-symbol">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Activity Log -->
+                <div class="paper-card">
+                    <h2><span class="emoji">📋</span> Activity Log</h2>
+                    <div class="activity-log" id="activity-log">
+                        <div class="log-entry info">
+                            <span class="log-time">[--:--:--]</span>
+                            Paper trading page loaded. Configure your settings and connect to Alpaca to begin.
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================================
+        // PAPER TRADING PAGE - JAVASCRIPT
+        // ============================================================================
+
+        // Build API_BASE dynamically based on current location
+        // Frontend runs on port 8081, API runs on port 8010
+        const API_BASE = (() => {
+            const hostname = window.location.hostname;
+            const protocol = window.location.protocol;
+            return `${protocol}//${hostname}:8010`;
+        })();
+
+        const ALPACA_STORAGE_KEY = "ppoalgo_alpaca_creds";
+
+        const state = {
+            connected: false,
+            running: false,
+            sessionId: null,
+            pollingInterval: null,
+        };
+
+        // ============================================================================
+        // UTILITY FUNCTIONS
+        // ============================================================================
+
+        function getTimeString() {
+            const now = new Date();
+            return now.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                timeZone: 'America/Chicago',
+                hour12: false
+            });
+        }
+
+        function log(message, type = 'info') {
+            const logEl = document.getElementById('activity-log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `<span class="log-time">[${getTimeString()}]</span> ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function showError(title, message) {
+            const banner = document.getElementById('error-banner');
+            document.getElementById('error-title').textContent = title;
+            document.getElementById('error-message').textContent = message;
+            banner.classList.add('visible');
+        }
+
+        function hideError() {
+            document.getElementById('error-banner').classList.remove('visible');
+        }
+
+        function updateConnectionStatus(status, message) {
+            const indicator = document.getElementById('status-indicator');
+            const value = document.getElementById('status-value');
+
+            indicator.className = `status-indicator ${status}`;
+            value.textContent = message;
+        }
+
+        // ============================================================================
+        // CREDENTIALS
+        // ============================================================================
+
+        function loadCredentials() {
+            try {
+                const saved = localStorage.getItem(ALPACA_STORAGE_KEY);
+                if (saved) {
+                    const creds = JSON.parse(saved);
+                    document.getElementById('alpaca-key').value = creds.keyId || '';
+                    document.getElementById('alpaca-secret').value = creds.secretKey || '';
+                }
+            } catch (e) {
+                console.error('Failed to load credentials:', e);
+            }
+        }
+
+        function saveCredentials() {
+            try {
+                const creds = {
+                    keyId: document.getElementById('alpaca-key').value,
+                    secretKey: document.getElementById('alpaca-secret').value,
+                };
+                localStorage.setItem(ALPACA_STORAGE_KEY, JSON.stringify(creds));
+            } catch (e) {
+                console.error('Failed to save credentials:', e);
+            }
+        }
+
+        // ============================================================================
+        // LOAD SETTINGS FROM DATABASE
+        // ============================================================================
+
+        async function loadSettingsFromDB() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/paper/settings`);
+                if (resp.ok) {
+                    const settings = await resp.json();
+                    if (settings && !settings.error) {
+                        if (settings.key_id) {
+                            document.getElementById('alpaca-key').value = settings.key_id;
+                        }
+                        if (settings.secret_key) {
+                            document.getElementById('alpaca-secret').value = settings.secret_key;
+                        }
+                        if (settings.symbol) {
+                            document.getElementById('paper-symbol').value = settings.symbol;
+                        }
+                        if (settings.algorithm) {
+                            document.getElementById('paper-algo').value = settings.algorithm;
+                        }
+                        if (settings.buy_trigger_pct !== undefined) {
+                            document.getElementById('paper-buy-trigger').value = settings.buy_trigger_pct;
+                        }
+                        if (settings.sell_trigger_pct !== undefined) {
+                            document.getElementById('paper-sell-trigger').value = settings.sell_trigger_pct;
+                        }
+                        if (settings.buy_amount !== undefined) {
+                            document.getElementById('paper-buy-amount').value = settings.buy_amount;
+                        }
+                        if (settings.compound !== undefined) {
+                            document.getElementById('paper-compound').checked = settings.compound;
+                        }
+                        if (settings.entry_time) {
+                            document.getElementById('paper-entry-time').value = settings.entry_time;
+                        }
+                        if (settings.exit_time) {
+                            document.getElementById('paper-exit-time').value = settings.exit_time;
+                        }
+                        if (settings.duration_days !== undefined) {
+                            document.getElementById('paper-duration').value = settings.duration_days;
+                        }
+                        if (settings.max_daily_loss !== undefined) {
+                            document.getElementById('paper-max-loss').value = settings.max_daily_loss;
+                        }
+                        if (settings.max_position_size !== undefined) {
+                            document.getElementById('paper-max-position').value = settings.max_position_size;
+                        }
+                        if (settings.stop_on_loss !== undefined) {
+                            document.getElementById('paper-stop-on-loss').checked = settings.stop_on_loss;
+                        }
+                        log('Loaded saved settings from database.', 'success');
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load settings from DB:', e);
+            }
+
+            // Fallback to localStorage
+            loadCredentials();
+        }
+
+        // ============================================================================
+        // TEST CONNECTION
+        // ============================================================================
+
+        async function testConnection() {
+            const keyId = document.getElementById('alpaca-key').value.trim();
+            const secretKey = document.getElementById('alpaca-secret').value.trim();
+
+            if (!keyId || !secretKey) {
+                showError('Missing Credentials', 'Please enter your Alpaca API Key ID and Secret Key.');
+                updateConnectionStatus('disconnected', 'Missing credentials');
+                return;
+            }
+
+            hideError();
+            updateConnectionStatus('connecting', 'Testing connection...');
+            log('Testing Alpaca connection...');
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/alpaca/test`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key_id: keyId, secret_key: secretKey }),
+                });
+
+                if (resp.ok) {
+                    const data = await resp.json();
+                    state.connected = true;
+                    saveCredentials();
+                    updateConnectionStatus('connected', `Connected - ${data.account_number || data.id || 'Active'}`);
+                    log(`Connected to Alpaca! Buying power: $${parseFloat(data.buying_power || 0).toLocaleString()}`, 'success');
+                    document.getElementById('live-buying-power').textContent = `$${parseFloat(data.buying_power || 0).toLocaleString()}`;
+                } else {
+                    const errorData = await resp.json().catch(() => ({}));
+                    state.connected = false;
+                    const errorMsg = errorData.detail || errorData.error || resp.statusText || 'Connection failed';
+                    updateConnectionStatus('disconnected', 'Connection failed');
+                    showError('Connection Failed', errorMsg);
+                    log(`Connection failed: ${errorMsg}`, 'error');
+                }
+            } catch (err) {
+                state.connected = false;
+                updateConnectionStatus('disconnected', 'Network error');
+                showError('Network Error', `Could not reach the backend server. Make sure the API is running. Error: ${err.message}`);
+                log(`Network error: ${err.message}`, 'error');
+            }
+        }
+
+        // ============================================================================
+        // START TRADING
+        // ============================================================================
+
+        async function startTrading() {
+            const keyId = document.getElementById('alpaca-key').value.trim();
+            const secretKey = document.getElementById('alpaca-secret').value.trim();
+
+            if (!keyId || !secretKey) {
+                showError('Missing Credentials', 'Please enter your Alpaca API credentials and test the connection first.');
+                return;
+            }
+
+            hideError();
+
+            const config = {
+                key_id: keyId,
+                secret_key: secretKey,
+                algorithm: document.getElementById('paper-algo').value,
+                symbol: document.getElementById('paper-symbol').value.toUpperCase(),
+                buy_trigger_pct: parseFloat(document.getElementById('paper-buy-trigger').value),
+                sell_trigger_pct: parseFloat(document.getElementById('paper-sell-trigger').value),
+                buy_amount: parseFloat(document.getElementById('paper-buy-amount').value),
+                compound: document.getElementById('paper-compound').checked,
+                entry_time: document.getElementById('paper-entry-time').value,
+                exit_time: document.getElementById('paper-exit-time').value,
+                duration_days: parseInt(document.getElementById('paper-duration').value),
+                max_daily_loss: parseFloat(document.getElementById('paper-max-loss').value),
+                max_position_size: parseFloat(document.getElementById('paper-max-position').value),
+                stop_on_loss: document.getElementById('paper-stop-on-loss').checked,
+            };
+
+            log(`Starting paper trading: ${config.algorithm.toUpperCase()} on ${config.symbol}`);
+            log(`Parameters: Buy at ${config.buy_trigger_pct}%, Sell at ${config.sell_trigger_pct}%, Amount: $${config.buy_amount}`);
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/paper/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config),
+                });
+
+                if (resp.ok) {
+                    const data = await resp.json();
+                    state.running = true;
+                    state.sessionId = data.session_id;
+
+                    updateTradingUI(true);
+                    updateLiveStats({
+                        status: 'Running',
+                        session_id: data.session_id,
+                        algorithm: config.algorithm,
+                        symbol: config.symbol,
+                        buying_power: data.buying_power,
+                        pnl: 0,
+                        position: 'None',
+                        trades: 0,
+                    });
+
+                    startStatusPolling();
+                    log(`Paper trading started! Session ID: ${data.session_id}`, 'success');
+
+                    // Refresh the algorithms list to show the new session
+                    await fetchRunningAlgorithms();
+                } else {
+                    // Improved error handling - parse the error response properly
+                    let errorMsg = 'Unknown error';
+                    try {
+                        const errorData = await resp.json();
+                        errorMsg = errorData.detail || errorData.error || errorData.message || resp.statusText;
+                    } catch (parseErr) {
+                        errorMsg = `HTTP ${resp.status}: ${resp.statusText}`;
+                    }
+
+                    showError('Failed to Start', errorMsg);
+                    log(`Failed to start paper trading: ${errorMsg}`, 'error');
+                }
+            } catch (err) {
+                showError('Network Error', `Could not connect to the backend server. Error: ${err.message}`);
+                log(`Start error: ${err.message}`, 'error');
+            }
+        }
+
+        // ============================================================================
+        // STOP TRADING
+        // ============================================================================
+
+        async function stopTrading() {
+            if (!confirm('Are you sure you want to stop paper trading? Any open positions will be closed.')) {
+                return;
+            }
+
+            log('Stopping paper trading...');
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/paper/stop`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: state.sessionId }),
+                });
+
+                if (resp.ok) {
+                    const data = await resp.json();
+                    log(`Paper trading stopped. Final P&L: $${data.final_pnl || 0}`, 'success');
+                } else {
+                    log('Failed to stop paper trading cleanly.', 'error');
+                }
+            } catch (err) {
+                log(`Stop error: ${err.message}`, 'error');
+            }
+
+            state.running = false;
+            state.sessionId = null;
+            stopStatusPolling();
+            updateTradingUI(false);
+            document.getElementById('live-status').textContent = 'Stopped';
+
+            // Refresh the algorithms list
+            await fetchRunningAlgorithms();
+        }
+
+        async function stopAllAlgorithms() {
+            if (!confirm('Are you sure you want to stop ALL running algorithms? Any open positions will be closed.')) {
+                return;
+            }
+
+            log('Stopping all algorithms...');
+
+            try {
+                // Stop all sessions by passing null session_id
+                const resp = await fetch(`${API_BASE}/api/paper/stop`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: null }),
+                });
+
+                if (resp.ok) {
+                    log('All algorithms stopped successfully.', 'success');
+                } else {
+                    log('Failed to stop all algorithms cleanly.', 'error');
+                }
+            } catch (err) {
+                log(`Stop all error: ${err.message}`, 'error');
+            }
+
+            state.running = false;
+            state.sessionId = null;
+            stopStatusPolling();
+            document.getElementById('live-status').textContent = 'Idle';
+
+            // Refresh the algorithms list
+            await fetchRunningAlgorithms();
+        }
+
+        // ============================================================================
+        // RUNNING ALGORITHMS MANAGEMENT
+        // ============================================================================
+
+        async function fetchRunningAlgorithms() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/paper/sessions`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    renderAlgorithmsList(data.sessions || []);
+
+                    // Update state if there are running sessions
+                    if (data.sessions && data.sessions.length > 0) {
+                        const activeSession = data.sessions.find(s => s.status === 'running');
+                        if (activeSession && !state.running) {
+                            state.running = true;
+                            state.sessionId = activeSession.id;
+                            updateTradingUI(true);
+                            startStatusPolling();
+                        }
+                    }
+                }
+                // Also fetch portfolio summary
+                await fetchPortfolioSummary();
+            } catch (err) {
+                console.error('Failed to fetch running algorithms:', err);
+            }
+        }
+
+        async function fetchPortfolioSummary() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/paper/portfolio`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    updatePortfolioSummary(data);
+                }
+            } catch (err) {
+                console.error('Failed to fetch portfolio summary:', err);
+            }
+        }
+
+        function updatePortfolioSummary(data) {
+            // Total P&L
+            const pnlEl = document.getElementById('summary-pnl');
+            const pnl = data.total_pnl || 0;
+            pnlEl.textContent = `${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toFixed(2)}`;
+            pnlEl.className = `value ${pnl >= 0 ? 'positive' : 'negative'}`;
+
+            // Capital
+            const capitalEl = document.getElementById('summary-capital');
+            capitalEl.textContent = `$${(data.total_capital || 0).toLocaleString()}`;
+
+            // Best performer
+            const bestEl = document.getElementById('summary-best');
+            if (data.best_performer) {
+                const bestPnl = data.best_performer.pnl || 0;
+                bestEl.textContent = `${data.best_performer.symbol} ${bestPnl >= 0 ? '+' : ''}$${bestPnl.toFixed(2)}`;
+            } else {
+                bestEl.textContent = '--';
+            }
+
+            // Worst performer
+            const worstEl = document.getElementById('summary-worst');
+            if (data.worst_performer) {
+                const worstPnl = data.worst_performer.pnl || 0;
+                worstEl.textContent = `${data.worst_performer.symbol} ${worstPnl >= 0 ? '+' : ''}$${worstPnl.toFixed(2)}`;
+            } else {
+                worstEl.textContent = '--';
+            }
+
+            // Positions & Sessions
+            document.getElementById('summary-positions').textContent = data.active_positions || 0;
+            document.getElementById('summary-sessions').textContent = `${data.session_count || 0} algorithms`;
+
+            // Market status
+            const marketEl = document.getElementById('summary-market');
+            if (data.market_status) {
+                const status = data.market_status.status || 'unknown';
+                const label = data.market_status.label || '--';
+                marketEl.innerHTML = `<span class="market-dot ${status}"></span><span>${label}</span>`;
+            }
+        }
+
+        // ============================================================================
+        // TABS
+        // ============================================================================
+
+        let perfChart = null;
+
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+
+            // Load data for the tab
+            if (tabName === 'trades') {
+                fetchTradesHistory();
+            } else if (tabName === 'analytics') {
+                fetchAnalytics();
+            }
+        }
+
+        async function fetchAnalytics() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/paper/analytics`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    renderAnalytics(data);
+                }
+            } catch (err) {
+                console.error('Failed to fetch analytics:', err);
+            }
+        }
+
+        function renderAnalytics(data) {
+            // Render Rankings Table
+            const tbody = document.getElementById('rankings-tbody');
+            tbody.innerHTML = '';
+
+            if (data.rankings && data.rankings.length > 0) {
+                data.rankings.forEach((item, index) => {
+                    const row = document.createElement('tr');
+                    const pnlClass = item.pnl >= 0 ? 'positive' : 'negative';
+                    const icon = index === 0 ? '🥇' : (index === 1 ? '🥈' : (index === 2 ? '🥉' : `#${index + 1}`));
+
+                    row.innerHTML = `
+                        <td><span style="font-size: 1.1rem;">${icon}</span></td>
+                        <td><strong>${item.symbol}</strong></td>
+                        <td>${item.algorithm.toUpperCase()}</td>
+                        <td>${item.trades}</td>
+                        <td class="${item.roi >= 0 ? 'positive' : 'negative'}">${item.roi.toFixed(2)}%</td>
+                        <td class="${pnlClass}"><strong>${item.pnl >= 0 ? '+' : ''}$${item.pnl.toFixed(2)}</strong></td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } else {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px;">No ranking data available</td></tr>';
+            }
+
+            // Render Chart
+            const ctx = document.getElementById('performanceChart').getContext('2d');
+            const chartData = data.chart_data || [];
+
+            const labels = chartData.map(d => {
+                const date = new Date(d.time);
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            });
+            const values = chartData.map(d => d.value);
+
+            if (perfChart) {
+                perfChart.destroy();
+            }
+
+            // Create gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, 'rgba(16, 185, 129, 0.4)');
+            gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+            // Check trend to decide color
+            const isPositive = values.length > 0 && values[values.length - 1] >= 0;
+            const lineColor = isPositive ? '#10b981' : '#ef4444';
+
+            perfChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Cumulative P&L ($)',
+                        data: values,
+                        borderColor: lineColor,
+                        backgroundColor: gradient,
+                        borderWidth: 2,
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 0,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function (context) {
+                                    return 'P&L: $' + context.parsed.y.toFixed(2);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false,
+                                drawBorder: false
+                            },
+                            ticks: {
+                                maxTicksLimit: 8,
+                                color: '#94a3b8'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(148, 163, 184, 0.1)',
+                                borderDash: [5, 5]
+                            },
+                            ticks: {
+                                callback: function (value) {
+                                    return '$' + value;
+                                },
+                                color: '#94a3b8'
+                            }
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+        }
+
+        async function fetchTradesHistory() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/paper/trades?limit=100`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    renderTradesTable(data.trades || []);
+                }
+            } catch (err) {
+                console.error('Failed to fetch trades:', err);
+            }
+        }
+
+        function renderTradesTable(trades) {
+            const tbody = document.getElementById('trades-tbody');
+            const emptyEl = document.getElementById('trades-empty');
+            const tableEl = document.getElementById('trades-table');
+
+            tbody.innerHTML = '';
+
+            if (trades.length === 0) {
+                emptyEl.style.display = 'block';
+                tableEl.style.display = 'none';
+                return;
+            }
+
+            emptyEl.style.display = 'none';
+            tableEl.style.display = 'table';
+
+            trades.forEach(trade => {
+                const row = document.createElement('tr');
+                const pnl = trade.pnl || 0;
+                const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+                const sideClass = trade.side === 'buy' ? 'trade-buy' : 'trade-sell';
+
+                row.innerHTML = `
+                    <td>${formatTradeTime(trade.executed_at)}</td>
+                    <td><strong>${trade.symbol}</strong></td>
+                    <td class="${sideClass}">${trade.side.toUpperCase()}</td>
+                    <td>${trade.quantity}</td>
+                    <td>$${trade.price.toFixed(2)}</td>
+                    <td>$${(trade.notional || trade.quantity * trade.price).toFixed(2)}</td>
+                    <td class="${pnlClass}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        function formatTradeTime(isoString) {
+            if (!isoString) return '--';
+            try {
+                const date = new Date(isoString);
+                return date.toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZone: 'America/Chicago'
+                });
+            } catch (e) {
+                return '--';
+            }
+        }
+
+        function renderAlgorithmsList(sessions) {
+            const listEl = document.getElementById('algo-list');
+            const countEl = document.getElementById('algo-count');
+            const noAlgosMsg = document.getElementById('no-algos-message');
+
+            // Update count badge
+            const runningCount = sessions.filter(s => s.status === 'running').length;
+            countEl.textContent = runningCount;
+
+            // Clear existing items (except the no-algos message)
+            const existingItems = listEl.querySelectorAll('.algo-item');
+            existingItems.forEach(item => item.remove());
+
+            if (sessions.length === 0) {
+                noAlgosMsg.style.display = 'block';
+                return;
+            }
+
+            noAlgosMsg.style.display = 'none';
+
+            // Add each session as an item
+            sessions.forEach(session => {
+                const item = createAlgorithmItem(session);
+                listEl.appendChild(item);
+            });
+        }
+
+        function generateSparklineSVG(pnl) {
+            // Simplified sparkline: A trend line from Y-mid to target
+            // 60px width, 24px height
+            const width = 60;
+            const height = 24;
+            const mid = height / 2;
+
+            let stroke = '#9ca3af'; // gray (neutral)
+            let yEnd = mid;
+
+            if (pnl > 0) {
+                stroke = '#10b981'; // green
+                yEnd = 4; // top
+            } else if (pnl < 0) {
+                stroke = '#ef4444'; // red
+                yEnd = 20; // bottom
+            }
+
+            // Generate a slightly "noisy" path for effect, or just a curve
+            // Start at mid-left, curve to end-right
+            const path = `M 0 ${mid} C ${width / 2} ${mid}, ${width / 2} ${yEnd}, ${width} ${yEnd}`;
+
+            return `
+                <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="display: block;">
+                    <path d="${path}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" />
+                    ${pnl > 0 ? `<circle cx="${width}" cy="${yEnd}" r="2" fill="${stroke}" />` : ''}
+                    ${pnl < 0 ? `<circle cx="${width}" cy="${yEnd}" r="2" fill="${stroke}" />` : ''}
+                </svg>
+            `;
+        }
+
+        function createAlgorithmItem(session) {
+            const item = document.createElement('div');
+
+            // Determine row classes based on status and P&L
+            const pnl = parseFloat(session.pnl || 0);
+            const isPaused = session.status === 'paused';
+            const isRunning = session.status === 'running';
+            let rowClasses = 'algo-item';
+            if (isPaused) {
+                rowClasses += ' paused';
+            } else if (isRunning) {
+                rowClasses += ' running';
+                if (pnl > 0) rowClasses += ' profit';
+                else if (pnl < 0) rowClasses += ' loss';
+            }
+            item.className = rowClasses;
+            item.dataset.sessionId = session.id;
+            item.onclick = () => toggleAlgoDetails(session.id);
+
+            const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+            const pnlSign = pnl >= 0 ? '+' : '';
+
+            const config = session.config || {};
+            const buyTrigger = config.buy_trigger_pct || 0;
+            const sellTrigger = config.sell_trigger_pct || 0;
+            const buyAmount = config.buy_amount || 0;
+            const entryTime = config.entry_time || '09:00';
+            const exitTime = config.exit_time || '15:55';
+            const durationDays = config.duration_days || 5;
+            const maxDailyLoss = config.max_daily_loss || 0;
+            const maxPositionSize = config.max_position_size || 0;
+            const stopOnLoss = config.stop_on_loss !== false;
+            const compound = config.compound || false;
+            const hasPosition = session.position ? true : false;
+
+            // Determine which control buttons to show
+            const pauseResumeBtn = isPaused
+                ? `<button class="btn-resume-algo" onclick="event.stopPropagation(); resumeAlgorithm('${session.id}')" title="Resume">▶️</button>`
+                : `<button class="btn-pause-algo" onclick="event.stopPropagation(); pauseAlgorithm('${session.id}')" title="Pause">⏸️</button>`;
+
+            item.innerHTML = `
+                <div class="algo-symbol">${session.symbol || 'N/A'}${hasPosition ? ' 🟢' : ''}</div>
+                <div class="algo-details">
+                    <div class="algo-strategy">${(session.algorithm || 'Unknown').toUpperCase()} Strategy</div>
+                    <div class="algo-params">Buy: ${buyTrigger}% | Sell: ${sellTrigger}% | Amount: $${buyAmount.toLocaleString()}</div>
+                </div>
+                <div class="algo-stats">
+                    <div class="algo-stat">
+                        <div class="algo-stat-label">Trades</div>
+                        <div class="algo-stat-value">${session.trades || 0}</div>
+                    </div>
+                    <div class="algo-stat">
+                        <div class="algo-stat-label">Started</div>
+                        <div class="algo-stat-value">${formatStartTime(session.started_at)}</div>
+                    </div>
+                </div>
+                <div class="algo-status">
+                    <div class="algo-status-dot"></div>
+                    <div class="algo-status-text">${isPaused ? 'Paused' : (isRunning ? 'Running' : session.status)}</div>
+                </div>
+                <div class="algo-pnl ${pnlClass}">${pnlSign}$${Math.abs(pnl).toFixed(2)}</div>
+
+                <div class="algo-actions">
+                    ${pauseResumeBtn}
+                    <button class="btn-clone-algo" onclick="event.stopPropagation(); cloneAlgorithm('${session.id}')" title="Clone">📋</button>
+                    <button class="btn-stop-algo" onclick="event.stopPropagation(); stopAlgorithm('${session.id}')" title="Stop">⏹</button>
+                </div>
+
+                <div class="algo-expanded-details">
+                    <span class="algo-detail-item"><span class="algo-detail-label">Entry</span><span class="algo-detail-value">${entryTime}</span></span>
+                    <span class="algo-detail-item"><span class="algo-detail-label">Exit</span><span class="algo-detail-value">${exitTime}</span></span>
+                    <span class="algo-detail-item"><span class="algo-detail-label">Duration</span><span class="algo-detail-value">${durationDays}d</span></span>
+                    <span class="algo-detail-item"><span class="algo-detail-label">Compound</span><span class="algo-detail-value ${compound ? 'enabled' : 'disabled'}">${compound ? '✓' : '✗'}</span></span>
+                    <span class="algo-detail-item"><span class="algo-detail-label">Max Loss</span><span class="algo-detail-value ${maxDailyLoss > 0 ? '' : 'disabled'}">${maxDailyLoss > 0 ? '$' + maxDailyLoss : '—'}</span></span>
+                    <span class="algo-detail-item"><span class="algo-detail-label">Max Pos</span><span class="algo-detail-value ${maxPositionSize > 0 ? '' : 'disabled'}">${maxPositionSize > 0 ? '$' + maxPositionSize : '—'}</span></span>
+                    <span class="algo-detail-item"><span class="algo-detail-label">ID</span><span class="algo-detail-value" style="font-family: monospace;">${session.id}</span></span>
+                </div>
+            `;
+
+            return item;
+        }
+
+        function toggleAlgoDetails(sessionId) {
+            const item = document.querySelector(`.algo-item[data-session-id="${sessionId}"]`);
+            if (item) {
+                item.classList.toggle('expanded');
+            }
+        }
+
+        function formatStartTime(isoString) {
+            if (!isoString) return '--';
+            try {
+                const date = new Date(isoString);
+                return date.toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZone: 'America/Chicago'
+                });
+            } catch (e) {
+                return '--';
+            }
+        }
+
+        async function stopAlgorithm(sessionId) {
+            if (!confirm(`Are you sure you want to stop this algorithm? Session ID: ${sessionId}`)) {
+                return;
+            }
+
+            log(`Stopping algorithm session: ${sessionId}...`);
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/paper/stop`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId }),
+                });
+
+                if (resp.ok) {
+                    const data = await resp.json();
+                    log(`Algorithm stopped. Final P&L: $${data.final_pnl || 0}`, 'success');
+
+                    // If this was our active session, update state
+                    if (sessionId === state.sessionId) {
+                        state.running = false;
+                        state.sessionId = null;
+                        stopStatusPolling();
+                        updateTradingUI(false);
+                        document.getElementById('live-status').textContent = 'Stopped';
+                    }
+
+                    // Refresh the list
+                    await fetchRunningAlgorithms();
+                } else {
+                    log('Failed to stop algorithm.', 'error');
+                }
+            } catch (err) {
+                log(`Error stopping algorithm: ${err.message}`, 'error');
+            }
+        }
+
+        async function pauseAlgorithm(sessionId) {
+            log(`Pausing algorithm session: ${sessionId}...`);
+            try {
+                const resp = await fetch(`${API_BASE}/api/paper/pause`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId }),
+                });
+                if (resp.ok) {
+                    log(`Algorithm paused: ${sessionId}`, 'success');
+                    await fetchRunningAlgorithms();
+                } else {
+                    log('Failed to pause algorithm.', 'error');
+                }
+            } catch (err) {
+                log(`Error pausing algorithm: ${err.message}`, 'error');
+            }
+        }
+
+        async function resumeAlgorithm(sessionId) {
+            log(`Resuming algorithm session: ${sessionId}...`);
+            try {
+                const resp = await fetch(`${API_BASE}/api/paper/resume`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId }),
+                });
+                if (resp.ok) {
+                    log(`Algorithm resumed: ${sessionId}`, 'success');
+                    await fetchRunningAlgorithms();
+                } else {
+                    log('Failed to resume algorithm.', 'error');
+                }
+            } catch (err) {
+                log(`Error resuming algorithm: ${err.message}`, 'error');
+            }
+        }
+
+        async function cloneAlgorithm(sessionId) {
+            const newSymbol = prompt('Enter symbol for cloned algorithm (leave blank to keep same):');
+            if (newSymbol === null) return; // User cancelled
+
+            log(`Cloning algorithm session: ${sessionId}...`);
+            try {
+                const resp = await fetch(`${API_BASE}/api/paper/clone`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: sessionId,
+                        new_symbol: newSymbol || undefined
+                    }),
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    log(`Algorithm cloned: ${data.new_session_id} (${data.symbol})`, 'success');
+                    await fetchRunningAlgorithms();
+                } else {
+                    log('Failed to clone algorithm.', 'error');
+                }
+            } catch (err) {
+                log(`Error cloning algorithm: ${err.message}`, 'error');
+            }
+        }
+
+        // ============================================================================
+        // UI UPDATES
+        // ============================================================================
+
+        function updateTradingUI(isRunning) {
+            // Both buttons are always visible now - no need to hide/show
+            // This function is kept for backwards compatibility
+        }
+
+        function updateLiveStats(data) {
+            const statusEl = document.getElementById('live-status');
+            const pnlEl = document.getElementById('live-pnl');
+            const posEl = document.getElementById('live-position');
+            const tradesEl = document.getElementById('live-trades');
+            const buyingPowerEl = document.getElementById('live-buying-power');
+            const sessionIdEl = document.getElementById('live-session-id');
+            const algorithmEl = document.getElementById('live-algorithm');
+            const symbolEl = document.getElementById('live-symbol');
+
+            if (statusEl && data.status) {
+                statusEl.textContent = data.status;
+                statusEl.className = `stat-value ${data.status === 'Running' ? 'running' : ''}`;
+            }
+
+            if (pnlEl && data.pnl !== undefined) {
+                const pnl = parseFloat(data.pnl) || 0;
+                pnlEl.textContent = `$${pnl.toFixed(2)}`;
+                pnlEl.className = `stat-value ${pnl >= 0 ? 'positive' : 'negative'}`;
+            }
+
+            if (posEl) posEl.textContent = data.position || 'None';
+            if (tradesEl) tradesEl.textContent = data.trades || 0;
+            if (buyingPowerEl && data.buying_power) {
+                buyingPowerEl.textContent = `$${parseFloat(data.buying_power).toLocaleString()}`;
+            }
+            if (sessionIdEl) sessionIdEl.textContent = data.session_id || '--';
+            if (algorithmEl) algorithmEl.textContent = (data.algorithm || '--').toUpperCase();
+            if (symbolEl) symbolEl.textContent = data.symbol || '--';
+        }
+
+        // ============================================================================
+        // STATUS POLLING
+        // ============================================================================
+
+        function startStatusPolling() {
+            if (state.pollingInterval) {
+                clearInterval(state.pollingInterval);
+            }
+
+            state.pollingInterval = setInterval(async () => {
+                if (!state.running) {
+                    stopStatusPolling();
+                    return;
+                }
+
+                try {
+                    const resp = await fetch(`${API_BASE}/api/paper/status`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        updateLiveStats(data);
+                    }
+                } catch (err) {
+                    console.error('Status poll error:', err);
+                }
+            }, 5000);
+        }
+
+        function stopStatusPolling() {
+            if (state.pollingInterval) {
+                clearInterval(state.pollingInterval);
+                state.pollingInterval = null;
+            }
+        }
+
+        // ============================================================================
+        // EVENT LISTENERS
+        // ============================================================================
+
+        function attachEvents() {
+            document.getElementById('btn-test-connection').addEventListener('click', testConnection);
+            document.getElementById('btn-start-trading').addEventListener('click', startTrading);
+            document.getElementById('btn-stop-all').addEventListener('click', stopAllAlgorithms);
+            document.getElementById('error-close').addEventListener('click', hideError);
+
+            // Auto-save credentials on change
+            document.getElementById('alpaca-key').addEventListener('change', saveCredentials);
+            document.getElementById('alpaca-secret').addEventListener('change', saveCredentials);
+        }
+
+        // ============================================================================
+        // INITIALIZATION
+        // ============================================================================
+
+        async function init() {
+            log('Initializing paper trading page...');
+
+            await loadSettingsFromDB();
+            attachEvents();
+
+            // Fetch any running algorithms
+            await fetchRunningAlgorithms();
+
+            // Set up periodic refresh of the algorithms list
+            setInterval(fetchRunningAlgorithms, 10000);
+
+            log('Ready. Enter your Alpaca credentials and test the connection to begin.');
+        }
+
+        init();
+    </script>
+</body>
+
+</html>
+</CodeContent>
+<parameter name="EmptyFile">false

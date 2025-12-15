@@ -1,0 +1,1608 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stock Parameter Optimizer</title>
+    <style>
+        :root {
+            --bg-dark: #0f1419;
+            --bg-card: #1a1f2e;
+            --bg-input: #252d3d;
+            --text-primary: #e7e9ea;
+            --text-secondary: #71767b;
+            --accent: #1d9bf0;
+            --accent-hover: #1a8cd8;
+            --success: #00ba7c;
+            --warning: #ffad1f;
+            --danger: #f4212e;
+            --border: #2f3336;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1a1f2e 0%, #0f1419 100%);
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, #1d9bf0, #00ba7c);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+        }
+
+        main {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 320px 1fr 320px;
+            gap: 1.5rem;
+        }
+
+        .panel {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+        }
+
+        .panel h2 {
+            font-size: 1.125rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .panel h2::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background: var(--accent);
+            border-radius: 2px;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 0.875rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-primary:disabled {
+            background: var(--bg-input);
+            cursor: not-allowed;
+        }
+
+        .results-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .result-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .result-card.optimizing {
+            border-color: var(--warning);
+        }
+
+        .result-card.complete {
+            border-color: var(--success);
+        }
+
+        .result-card.error {
+            border-color: var(--danger);
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .symbol-badge {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-badge.optimizing {
+            background: rgba(255, 173, 31, 0.2);
+            color: var(--warning);
+        }
+
+        .status-badge.complete {
+            background: rgba(0, 186, 124, 0.2);
+            color: var(--success);
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: var(--bg-input);
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 1rem 0;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--success));
+            transition: width 0.3s ease;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .metric {
+            background: var(--bg-input);
+            padding: 0.75rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .metric-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .metric-value {
+            font-size: 1.125rem;
+            font-weight: 700;
+        }
+
+        .metric-value.positive {
+            color: var(--success);
+        }
+
+        .metric-value.negative {
+            color: var(--danger);
+        }
+
+        .params-display {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+            padding: 1rem;
+            background: var(--bg-input);
+            border-radius: 8px;
+        }
+
+        .param {
+            flex: 1;
+            text-align: center;
+        }
+
+        .param-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .param-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .log-container {
+            margin-top: 2rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            font-size: 0.75rem;
+            padding: 0.25rem 0;
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+
+        .log-entry.info {
+            color: var(--accent);
+        }
+
+        .log-entry.success {
+            color: var(--success);
+        }
+
+        .log-entry.error {
+            color: var(--danger);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 1rem;
+        }
+
+        .connection-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--danger);
+        }
+
+        .connection-dot.connected {
+            background: var(--success);
+        }
+
+        /* GPU/CPU Filter and Icons */
+        .filter-row {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+            align-items: center;
+        }
+
+        .filter-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .filter-checkbox input {
+            width: 14px;
+            height: 14px;
+            accent-color: var(--accent);
+        }
+
+        .gpu-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 0.55rem;
+            font-weight: 600;
+            flex-shrink: 0;
+            letter-spacing: 0.3px;
+        }
+
+        .gpu-icon.gpu {
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            color: white;
+        }
+
+        .gpu-icon.cpu {
+            background: var(--bg-input);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+
+        /* History Panel Styles */
+        .history-panel {
+            max-height: calc(100vh - 150px);
+            overflow-y: auto;
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .history-item {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+            transition: all 0.2s;
+        }
+
+        .history-item:hover {
+            border-color: var(--accent);
+        }
+
+        .history-item-content {
+            flex: 1;
+            cursor: pointer;
+        }
+
+        .history-item-content:hover {
+            opacity: 0.9;
+        }
+
+        .delete-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 0.25rem;
+            font-size: 0.8rem;
+            opacity: 0.5;
+            transition: all 0.2s;
+        }
+
+        .delete-btn:hover {
+            opacity: 1;
+            color: var(--danger);
+        }
+
+        .delete-all-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 0.35rem 0.5rem;
+            font-size: 0.75rem;
+            border-radius: 4px;
+            transition: all 0.2s;
+            margin-left: auto;
+        }
+
+        .delete-all-btn:hover {
+            border-color: var(--danger);
+            color: var(--danger);
+            background: rgba(244, 33, 46, 0.1);
+        }
+
+        .history-item.selected {
+            border-color: var(--success);
+            background: rgba(0, 186, 124, 0.1);
+        }
+
+        .history-symbol {
+            font-weight: 700;
+            color: var(--accent);
+            font-size: 1rem;
+        }
+
+        .history-date {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .history-params {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        .history-param {
+            background: var(--bg-dark);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+        }
+
+        .history-param.timing {
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            color: white;
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.2rem 0.4rem;
+        }
+
+        .history-score {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--success);
+            margin-top: 0.25rem;
+        }
+
+        .refresh-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            margin-bottom: 1rem;
+            width: 100%;
+        }
+
+        .refresh-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .sort-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 0.35rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            flex: 1;
+            transition: all 0.2s;
+        }
+
+        .sort-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .sort-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 0.8rem;
+            margin-bottom: 0.75rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        /* Global Progress Bar */
+        .global-progress {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            display: none;
+        }
+
+        .global-progress.active {
+            display: block;
+        }
+
+        .global-progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .global-progress-title {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .global-progress-stats {
+            display: flex;
+            gap: 1.5rem;
+            font-size: 0.875rem;
+        }
+
+        .global-progress-stat {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .global-progress-stat-label {
+            color: var(--text-secondary);
+        }
+
+        .global-progress-stat-value {
+            color: var(--accent);
+            font-weight: 600;
+            font-family: monospace;
+        }
+
+        .global-progress-bar {
+            height: 12px;
+            background: var(--bg-input);
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .global-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--success));
+            transition: width 0.3s ease;
+            position: relative;
+        }
+
+        /* Indeterminate loading state - shows animated bar during data loading */
+        .global-progress-fill.loading {
+            width: 30% !important;
+            animation: loading-pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes loading-pulse {
+
+            0%,
+            100% {
+                transform: translateX(-100%);
+                opacity: 0.7;
+            }
+
+            50% {
+                transform: translateX(250%);
+                opacity: 1;
+            }
+        }
+
+        .global-progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.2) 50%, transparent 100%);
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% {
+                transform: translateX(-100%);
+            }
+
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
+        .global-progress-percent {
+            position: absolute;
+            right: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .global-progress-footer {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>🚀 Stock Parameter Optimizer</h1>
+        <p>Bayesian optimization to find optimal buy/sell triggers for each stock</p>
+    </header>
+
+    <!-- Global Progress Bar -->
+    <div class="global-progress" id="global-progress">
+        <div class="global-progress-header">
+            <span class="global-progress-title">⏱️ Optimization in Progress</span>
+            <div class="global-progress-stats">
+                <div class="global-progress-stat">
+                    <span class="global-progress-stat-label">Elapsed:</span>
+                    <span class="global-progress-stat-value" id="elapsed-time">00:00</span>
+                </div>
+                <div class="global-progress-stat">
+                    <span class="global-progress-stat-label">Remaining:</span>
+                    <span class="global-progress-stat-value" id="remaining-time">--:--</span>
+                </div>
+                <div class="global-progress-stat">
+                    <span class="global-progress-stat-label">Speed:</span>
+                    <span class="global-progress-stat-value" id="trials-speed">-- trials/s</span>
+                </div>
+            </div>
+        </div>
+        <div class="global-progress-bar">
+            <div class="global-progress-fill" id="global-progress-fill" style="width: 0%"></div>
+            <span class="global-progress-percent" id="global-progress-percent">0%</span>
+        </div>
+        <div class="global-progress-footer">
+            <span id="progress-stocks">Stock 0/0</span>
+            <span id="progress-trials">Trial 0/0</span>
+        </div>
+    </div>
+
+    <main>
+        <aside class="panel">
+            <h2>Configuration</h2>
+
+            <div class="form-group">
+                <label>Stock Symbols (comma-separated)</label>
+                <input type="text" id="symbols" value="TSLA" placeholder="TSLA, NVDA, AAPL" />
+                <div
+                    style="margin-top: 8px; padding: 10px; background: rgba(29, 155, 240, 0.1); border-radius: 8px; border-left: 3px solid var(--accent);">
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px;">Quick Keywords:
+                    </div>
+                    <div style="font-size: 0.7rem; color: var(--text-primary); line-height: 1.6;">
+                        <strong style="color: var(--success);">ALL</strong> → SPY 500 (~500 stocks)<br>
+                        <strong style="color: var(--warning);">CAP</strong> → Large Cap Focus (~280 stocks)<br>
+                        <strong style="color: var(--accent);">FULL</strong> → Extended Sectors (~300 stocks)
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Start Date</label>
+                <input type="date" id="start-date" value="2024-01-01" />
+            </div>
+
+            <div class="form-group">
+                <label>End Date</label>
+                <input type="date" id="end-date" value="2024-12-01" />
+            </div>
+
+            <div class="form-group">
+                <label>Initial Capital ($)</label>
+                <input type="number" id="capital" value="100000" />
+            </div>
+
+            <div class="form-group">
+                <label>Optimization Trials</label>
+                <input type="number" id="trials" value="200" min="50" max="1000" />
+            </div>
+
+            <div class="form-group">
+                <label>Optimize For</label>
+                <select id="metric">
+                    <option value="sharpe">Sharpe Ratio</option>
+                    <option value="total_return">Total Return</option>
+                    <option value="win_rate">Win Rate</option>
+                </select>
+            </div>
+
+            <div class="form-group"
+                style="display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;">
+                <label for="use-gpu" style="margin-bottom: 0; cursor: pointer;">Available GPU: RTX 3090</label>
+                <input type="checkbox" id="use-gpu" style="width: auto; margin-top: 0;" checked />
+            </div>
+
+            <div class="form-group"
+                style="display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;">
+                <div style="display: flex; flex-direction: column;">
+                    <label for="smart-timing" style="margin-bottom: 0; cursor: pointer;">⏰ Smart Entry Timing</label>
+                    <small style="color: #888; font-size: 0.75em; margin-top: 0.2rem;">
+                        Optimize buy time of day + triggers
+                    </small>
+                </div>
+                <input type="checkbox" id="smart-timing" style="width: auto; margin-top: 0;" />
+            </div>
+
+            <div class="form-group" id="timing-approach-group"
+                style="display: none; margin-left: 1rem; border-left: 2px solid #444; padding-left: 0.75rem;">
+                <label for="timing-approach" style="margin-bottom: 0.5rem; font-size: 0.9em;">Timing Approach:</label>
+                <select id="timing-approach" style="width: 100%; padding: 0.25rem;">
+                    <option value="sequential">Sequential (Faster) - Find timing after triggers</option>
+                    <option value="joint">Joint (Better) - Optimize all parameters together</option>
+                </select>
+                <small style="color: #666; font-size: 0.7em; margin-top: 0.25rem; display: block;">
+                    Sequential: ~30 sec faster | Joint: potentially better results
+                </small>
+            </div>
+
+            <button class="btn btn-primary" id="start-btn" onclick="startOptimization()">
+                Start Optimization
+            </button>
+
+            <div class="connection-status">
+                <div class="connection-dot" id="ws-status"></div>
+                <span id="ws-text">Connecting...</span>
+            </div>
+        </aside>
+
+        <section>
+            <div class="results-container" id="results">
+                <div class="empty-state">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                    </svg>
+                    <h3>No Results Yet</h3>
+                    <p>Configure settings and start optimization</p>
+                </div>
+            </div>
+
+            <div class="log-container" id="log">
+                <div class="log-entry info">[System] Ready to optimize</div>
+            </div>
+        </section>
+
+        <aside class="panel history-panel">
+            <h2 style="display: flex; align-items: center; gap: 0.5rem;">
+                📜 History <span id="history-count"
+                    style="font-size: 0.8em; color: var(--accent); font-weight: normal;">(0)</span>
+                <button class="delete-all-btn" onclick="deleteAllHistory()" title="Delete All History">🗑️</button>
+            </h2>
+            <button class="refresh-btn" onclick="loadHistory()">🔄 Refresh History</button>
+            <input type="text" id="history-search" class="search-input" placeholder="🔍 Search symbol..."
+                oninput="filterHistory()">
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                <button class="sort-btn active" id="sort-date" onclick="sortHistory('date')">📅 Date</button>
+                <button class="sort-btn" id="sort-sharpe" onclick="sortHistory('sharpe')">📈 Sharpe</button>
+                <button class="sort-btn" id="sort-max" onclick="sortHistory('max')">🚀 Max</button>
+                <button class="sort-btn" id="sort-win" onclick="sortHistory('win')">🎯 Win</button>
+            </div>
+            <div class="filter-row">
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filter-gpu" checked onchange="filterHistory()">
+                    <span class="gpu-icon gpu">GPU</span>
+                </label>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filter-cpu" checked onchange="filterHistory()">
+                    <span class="gpu-icon cpu">CPU</span>
+                </label>
+            </div>
+            <div class="history-list" id="history-list">
+                <div class="empty-state" style="padding: 1rem;">
+                    <p>No history yet</p>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <script>
+        let ws = null;
+        const results = {};
+        const CONFIG_KEY = 'optimizer_config';
+        let historyData = []; // Store history for so  let currentSort = 'date'; // Current sort field
+        let searchFilter = ''; // Search filter text
+        let showGpuRuns = true; // GPU filter
+        let showCpuRuns = true; // CPU filter
+
+        // Global progress tracking
+        let globalProgress = {
+            totalSymbols: 0,
+            completedSymbols: 0,
+            trialsPerSymbol: 0,
+            currentSymbolTrials: 0,
+            startTime: null,
+            timerInterval: null
+        };
+
+        // Helper function to sanitize metric values
+        function sanitizeValue(value, isPercentage = false, decimals = 2) {
+            if (value == null || value === -999999 || isNaN(value) || !isFinite(value)) {
+                return 'N/A';
+            }
+            if (isPercentage) {
+                return value.toFixed(decimals) + '%';
+            }
+            return value.toFixed(decimals);
+        }
+
+        // Format time as MM:SS or HH:MM:SS
+        function formatTime(seconds) {
+            if (seconds < 0 || !isFinite(seconds)) return '--:--';
+            const hrs = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            if (hrs > 0) {
+                return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Update elapsed time display
+        function updateElapsedTime() {
+            if (!globalProgress.startTime) return;
+            const elapsed = (Date.now() - globalProgress.startTime) / 1000;
+            document.getElementById('elapsed-time').textContent = formatTime(elapsed);
+        }
+
+        // Update global progress display
+        function updateGlobalProgress() {
+            const totalTrials = globalProgress.totalSymbols * globalProgress.trialsPerSymbol;
+            const completedTrials = (globalProgress.completedSymbols * globalProgress.trialsPerSymbol) + globalProgress.currentSymbolTrials;
+            const percent = totalTrials > 0 ? (completedTrials / totalTrials) * 100 : 0;
+
+            document.getElementById('global-progress-fill').style.width = `${percent}%`;
+            document.getElementById('global-progress-percent').textContent = `${Math.round(percent)}%`;
+            document.getElementById('progress-stocks').textContent = `Stock ${globalProgress.completedSymbols + (globalProgress.currentSymbolTrials > 0 ? 1 : 0)}/${globalProgress.totalSymbols}`;
+            document.getElementById('progress-trials').textContent = `Trial ${completedTrials}/${totalTrials}`;
+
+            // Calculate speed and ETA
+            if (globalProgress.startTime && completedTrials > 0) {
+                const elapsedSecs = (Date.now() - globalProgress.startTime) / 1000;
+                const speed = completedTrials / elapsedSecs;
+                const remainingTrials = totalTrials - completedTrials;
+                const etaSecs = speed > 0 ? remainingTrials / speed : 0;
+
+                document.getElementById('trials-speed').textContent = `${speed.toFixed(1)} trials/s`;
+                document.getElementById('remaining-time').textContent = formatTime(etaSecs);
+            }
+        }
+
+        // Show global progress bar
+        function showGlobalProgress(symbols, trialsPerSymbol) {
+            globalProgress = {
+                totalSymbols: symbols.length,
+                completedSymbols: 0,
+                trialsPerSymbol: trialsPerSymbol,
+                currentSymbolTrials: 0,
+                currentPhase: 'starting',  // Track current phase
+                currentSymbol: '',
+                startTime: Date.now(),
+                timerInterval: setInterval(updateElapsedTime, 1000)
+            };
+
+            document.getElementById('global-progress').classList.add('active');
+            // Start with loading animation
+            const fillBar = document.getElementById('global-progress-fill');
+            fillBar.style.width = '0%';
+            fillBar.classList.add('loading');
+
+            document.getElementById('global-progress-percent').textContent = '...';
+            document.getElementById('elapsed-time').textContent = '00:00';
+            // Estimate: ~0.2 seconds per trial (based on observed performance)
+            const estimatedSeconds = Math.round(trialsPerSymbol * symbols.length * 0.2);
+            const estMins = Math.floor(estimatedSeconds / 60);
+            const estSecs = estimatedSeconds % 60;
+            document.getElementById('remaining-time').textContent = `~${estMins}:${estSecs.toString().padStart(2, '0')}`;
+            document.getElementById('trials-speed').textContent = '-- trials/s';
+            document.getElementById('progress-stocks').textContent = `Stock 0/${symbols.length}`;
+            document.getElementById('progress-trials').textContent = `Preparing ${symbols.length * trialsPerSymbol} trials...`;
+        }
+
+        // Hide global progress bar
+        function hideGlobalProgress() {
+            if (globalProgress.timerInterval) {
+                clearInterval(globalProgress.timerInterval);
+            }
+            document.getElementById('global-progress').classList.remove('active');
+            document.getElementById('global-progress-fill').classList.remove('loading');
+        }
+
+        // Load config from localStorage
+        function loadConfig() {
+            try {
+                const saved = localStorage.getItem(CONFIG_KEY);
+                if (saved) {
+                    const config = JSON.parse(saved);
+                    document.getElementById('symbols').value = config.symbols || 'TSLA';
+                    document.getElementById('start-date').value = config.startDate || '2024-01-01';
+                    document.getElementById('end-date').value = config.endDate || '2024-12-01';
+                    document.getElementById('capital').value = config.capital || 100000;
+                    document.getElementById('trials').value = config.trials || 200;
+                    document.getElementById('metric').value = config.metric || 'sharpe';
+                    document.getElementById('use-gpu').checked = config.useGpu !== undefined ? config.useGpu : true;
+                    document.getElementById('smart-timing').checked = config.smartTiming || false;
+                    document.getElementById('timing-approach').value = config.timingApproach || 'sequential';
+                    
+                    // Show/hide timing approach based on smart timing setting
+                    toggleTimingApproach();
+                    log('Loaded saved configuration', 'info');
+                }
+            } catch (e) {
+                console.error('Failed to load config:', e);
+            }
+        }
+
+        // Save config to localStorage
+        function saveConfig() {
+            try {
+                const config = {
+                    symbols: document.getElementById('symbols').value,
+                    startDate: document.getElementById('start-date').value,
+                    endDate: document.getElementById('end-date').value,
+                    capital: document.getElementById('capital').value,
+                    trials: document.getElementById('trials').value,
+                    metric: document.getElementById('metric').value,
+                    useGpu: document.getElementById('use-gpu').checked,
+                    smartTiming: document.getElementById('smart-timing').checked,
+                    timingApproach: document.getElementById('timing-approach').value
+                };
+                localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+            } catch (e) {
+                console.error('Failed to save config:', e);
+            }
+        }
+
+        // Auto-save config on input change
+        function setupConfigAutoSave() {
+            const inputs = ['symbols', 'start-date', 'end-date', 'capital', 'trials', 'metric'];
+            inputs.forEach(id => {
+                document.getElementById(id).addEventListener('change', saveConfig);
+                document.getElementById(id).addEventListener('input', saveConfig);
+            });
+        }
+
+        // Load history from database
+        async function loadHistory() {
+            try {
+                const resp = await fetch('/api/history');
+                historyData = await resp.json();
+                // Update counter
+                document.getElementById('history-count').textContent = `(${historyData.length})`;
+                sortAndRenderHistory();
+            } catch (e) {
+                console.error('Failed to load history:', e);
+            }
+        }
+
+        // Sort and render history
+        function sortAndRenderHistory() {
+            // Filter by search term first
+            let filtered = historyData;
+            if (searchFilter) {
+                filtered = historyData.filter(item =>
+                    item.symbol.toLowerCase().includes(searchFilter.toLowerCase())
+                );
+            }
+
+            // Filter by GPU/CPU
+            filtered = filtered.filter(item => {
+                const isGpu = item.method === 'gpu_grid_search';
+                if (isGpu && !showGpuRuns) return false;
+                if (!isGpu && !showCpuRuns) return false;
+                return true;
+            });
+
+            // Then sort
+            let sorted = [...filtered];
+            switch (currentSort) {
+                case 'sharpe':
+                    sorted.sort((a, b) => {
+                        const aValue = a.sharpe_from_json ?? a.score ?? 0;
+                        const bValue = b.sharpe_from_json ?? b.score ?? 0;
+                        return bValue - aValue;
+                    });
+                    break;
+                case 'max':
+                    sorted.sort((a, b) => (b.volatility_max_gain || 0) - (a.volatility_max_gain || 0));
+                    break;
+                case 'win':
+                    sorted.sort((a, b) => (b.win_rate || 0) - (a.win_rate || 0));
+                    break;
+                case 'date':
+                default:
+                    sorted.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                    break;
+            }
+            renderHistory(sorted);
+        }
+
+        // Filter history by search input
+        function filterHistory() {
+            searchFilter = document.getElementById('history-search').value;
+            showGpuRuns = document.getElementById('filter-gpu').checked;
+            showCpuRuns = document.getElementById('filter-cpu').checked;
+            sortAndRenderHistory();
+        }
+
+        // Sort history by field
+        function sortHistory(field) {
+            currentSort = field;
+            // Update button states
+            document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`sort-${field}`).classList.add('active');
+            sortAndRenderHistory();
+        }
+
+        // Render history list
+        function renderHistory(history) {
+            const container = document.getElementById('history-list');
+
+            if (!history || history.length === 0) {
+                container.innerHTML = '<div class="empty-state" style="padding: 1rem;"><p>No history yet</p></div>';
+                return;
+            }
+
+            container.innerHTML = history.map(item => {
+                const sharpe = item.sharpe_from_json ?? item.score;
+                const maxGain = item.volatility_max_gain;
+                const isGpu = item.method === 'gpu_grid_search';
+                const gpuIcon = isGpu
+                    ? '<span class="gpu-icon gpu" title="GPU Run">GPU</span>'
+                    : '<span class="gpu-icon cpu" title="CPU Run">CPU</span>';
+                return `
+                <div class="history-item">
+                    ${gpuIcon}
+                    <div class="history-item-content" onclick="showHistoryDetail(${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                        <div class="history-symbol">${item.symbol}</div>
+                        <div class="history-date">${formatDate(item.created_at)}</div>
+                        <div class="history-score">
+                            sharpe: ${(sharpe != null && sharpe !== -999999 && !isNaN(sharpe)) ? sharpe.toFixed(2) : 'N/A'} | 
+                            max: ${(maxGain != null && maxGain !== -999999 && !isNaN(maxGain)) ? maxGain.toFixed(1) + '%' : 'N/A'}
+                        </div>
+                    </div>
+                    <button class="delete-btn" onclick="event.stopPropagation(); deleteHistoryItem(${item.id})" title="Delete">🗑️</button>
+                </div>
+            `}).join('');
+        }
+
+        // Delete history item
+        async function deleteHistoryItem(id) {
+            try {
+                const resp = await fetch(`/api/history/${id}`, { method: 'DELETE' });
+                if (resp.ok) {
+                    log('Deleted history item', 'info');
+                    loadHistory();
+                } else {
+                    log('Failed to delete item', 'error');
+                }
+            } catch (e) {
+                log(`Delete error: ${e.message}`, 'error');
+            }
+        }
+
+        // Delete all history items
+        async function deleteAllHistory() {
+            const count = historyData.length;
+            if (count === 0) {
+                log('No history to delete', 'info');
+                return;
+            }
+            if (!confirm(`Are you sure you want to delete all ${count} history items? This cannot be undone.`)) {
+                return;
+            }
+            try {
+                const resp = await fetch('/api/history', { method: 'DELETE' });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    log(`Deleted ${data.deleted} history items`, 'success');
+                    loadHistory();
+                } else {
+                    log('Failed to delete all history', 'error');
+                }
+            } catch (e) {
+                log(`Delete all error: ${e.message}`, 'error');
+            }
+        }
+
+        // Format date for display
+        function formatDate(isoString) {
+            if (!isoString) return '';
+            const date = new Date(isoString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        // Show history detail in results panel
+        function showHistoryDetail(item) {
+            const container = document.getElementById('results');
+            container.innerHTML = '';
+
+            const card = document.createElement('div');
+            card.className = 'result-card complete';
+            card.innerHTML = `
+                <div class="result-header">
+                    <span class="symbol-badge">${item.symbol}</span>
+                    <span class="status-badge complete">History</span>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                    Run on: ${formatDate(item.created_at)}<br>
+                    Period: ${item.start_date || 'N/A'} to ${item.end_date || 'N/A'}
+                </div>
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="metric-label">Volatility Range</div>
+                        <div class="metric-value">${sanitizeValue(item.volatility_avg_range, true, 2)}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Max Gain</div>
+                        <div class="metric-value">${sanitizeValue(item.volatility_max_gain, true, 2)}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Vol Score</div>
+                        <div class="metric-value">${sanitizeValue(item.volatility_score, false, 2)}</div>
+                    </div>
+                </div>
+                <div class="params-display">
+                    <div class="param">
+                        <div class="param-label">Buy Trigger</div>
+                        <div class="param-value">${item.buy_trigger_pct}%</div>
+                    </div>
+                    <div class="param">
+                        <div class="param-label">Sell Trigger</div>
+                        <div class="param-value">${item.sell_trigger_pct}%</div>
+                    </div>
+                    <div class="param">
+                        <div class="param-label">Compound</div>
+                        <div class="param-value">${item.compound ? 'Yes' : 'No'}</div>
+                    </div>
+                </div>
+                <div class="metrics-grid" style="margin-top: 1rem;">
+                    <div class="metric">
+                        <div class="metric-label">${item.optimized_for || 'Score'}</div>
+                        <div class="metric-value ${item.score > 0 ? 'positive' : 'negative'}">${sanitizeValue(item.score, false, 2)}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Trials</div>
+                        <div class="metric-value">${item.n_trials || 'N/A'}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Duration</div>
+                        <div class="metric-value" style="color: var(--accent);">⏱️ ${item.duration_seconds ? (item.duration_seconds >= 60 ? Math.floor(item.duration_seconds / 60) + 'm ' + Math.round(item.duration_seconds % 60) + 's' : item.duration_seconds + 's') : 'N/A'}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Capital</div>
+                        <div class="metric-value">$${(item.capital || 0).toLocaleString()}</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                    <button class="btn btn-primary" style="flex: 1;" onclick="applyHistoryConfig(${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                        Apply These Settings
+                    </button>
+                    <button class="btn" style="flex: 1; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border);" onclick="openAnalysis('${item.symbol}', ${item.id})">
+                        📊 Open Analysis
+                    </button>
+                </div>
+            `;
+            container.appendChild(card);
+
+            log(`Showing history for ${item.symbol} from ${formatDate(item.created_at)}`, 'info');
+        }
+
+        // Open analysis in new tab
+        function openAnalysis(symbol, historyId) {
+            const analysisUrl = `/api/analysis/${historyId}`;
+            window.open(analysisUrl, '_blank');
+        }
+
+        // Apply history config to form
+        function applyHistoryConfig(item) {
+            document.getElementById('symbols').value = item.symbol;
+            if (item.start_date) document.getElementById('start-date').value = item.start_date;
+            if (item.end_date) document.getElementById('end-date').value = item.end_date;
+            if (item.capital) document.getElementById('capital').value = item.capital;
+            if (item.n_trials) document.getElementById('trials').value = item.n_trials;
+            if (item.optimized_for) document.getElementById('metric').value = item.optimized_for;
+            // Set GPU checkbox based on how this run was executed
+            const wasGpuRun = item.method === 'gpu_grid_search';
+            document.getElementById('use-gpu').checked = wasGpuRun;
+            saveConfig();
+            log(`Applied settings from ${item.symbol} history (GPU: ${wasGpuRun ? 'Yes' : 'No'})`, 'success');
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+            ws.onopen = () => {
+                document.getElementById('ws-status').classList.add('connected');
+                document.getElementById('ws-text').textContent = 'Connected';
+                log('Connected to optimizer server', 'success');
+            };
+
+            ws.onclose = () => {
+                document.getElementById('ws-status').classList.remove('connected');
+                document.getElementById('ws-text').textContent = 'Disconnected';
+                log('Disconnected from server', 'error');
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+        }
+
+        function handleMessage(data) {
+            switch (data.type) {
+                case 'status':
+                    updateStatus(data);
+                    break;
+                case 'progress':
+                    updateProgress(data);
+                    break;
+                case 'complete':
+                    showComplete(data);
+                    loadHistory(); // Refresh history after completion
+                    break;
+                case 'error':
+                    showError(data);
+                    break;
+                case 'job_complete':
+                    log('All optimizations complete!', 'success');
+                    document.getElementById('start-btn').disabled = false;
+                    document.getElementById('start-btn').textContent = 'Start Optimization';
+                    hideGlobalProgress();
+                    loadHistory();
+                    break;
+            }
+        }
+
+        function updateStatus(data) {
+            log(`[${data.symbol}] ${data.message}`, 'info');
+            ensureCard(data.symbol, 'optimizing');
+
+            // Track current phase for progress display
+            globalProgress.currentSymbol = data.symbol;
+            globalProgress.currentPhase = data.status;
+
+            // Update the trials display based on phase
+            const phaseMessages = {
+                'fetching_data': `📥 Fetching ${data.symbol} data...`,
+                'analyzing': `🔬 Analyzing ${data.symbol} volatility...`,
+                'optimizing': `🧠 Optimizing ${data.symbol}...`,
+                'optimizing_gpu': `🔥 GPU optimizing ${data.symbol}...`
+            };
+
+            if (phaseMessages[data.status]) {
+                document.getElementById('progress-trials').textContent = phaseMessages[data.status];
+                document.getElementById('progress-stocks').textContent =
+                    `Stock ${globalProgress.completedSymbols + 1}/${globalProgress.totalSymbols}`;
+            }
+
+            const card = document.getElementById(`card-${data.symbol}`);
+            if (card) {
+                const status = card.querySelector('.status-badge');
+                status.textContent = data.status;
+
+                if (data.volatility) {
+                    const info = card.querySelector('.volatility-info');
+                    if (info) {
+                        info.innerHTML = `
+              <div class="metric"><div class="metric-label">Avg Range</div><div class="metric-value">${data.volatility.avg_range}%</div></div>
+              <div class="metric"><div class="metric-label">Max Gain</div><div class="metric-value">${data.volatility.max_gain}%</div></div>
+              <div class="metric"><div class="metric-label">Volatility</div><div class="metric-value">${data.volatility.volatility_score}</div></div>
+            `;
+                    }
+                }
+            }
+        }
+
+        function updateProgress(data) {
+            const card = document.getElementById(`card-${data.symbol}`);
+            if (card) {
+                const progress = (data.trials_completed / data.total_trials) * 100;
+                const bar = card.querySelector('.progress-bar-fill');
+                if (bar) bar.style.width = `${progress}%`;
+
+                const statusText = card.querySelector('.progress-text');
+                if (statusText) {
+                    statusText.textContent = `Trial ${data.trials_completed}/${data.total_trials} | Best: ${data.best_score?.toFixed(2) || '--'}`;
+                }
+
+                if (data.best_params) {
+                    const params = card.querySelector('.current-params');
+                    if (params) {
+                        params.innerHTML = `
+              <div class="param"><div class="param-label">Buy Trigger</div><div class="param-value">${data.best_params.buy_trigger?.toFixed(1) || '--'}%</div></div>
+              <div class="param"><div class="param-label">Sell Trigger</div><div class="param-value">${data.best_params.sell_trigger?.toFixed(1) || '--'}%</div></div>
+            `;
+                    }
+                }
+            }
+
+            // Update global progress
+            globalProgress.currentSymbolTrials = data.trials_completed;
+            // Update trialsPerSymbol if this stock has different total (e.g., GPU mode)
+            if (data.total_trials && data.total_trials !== globalProgress.trialsPerSymbol) {
+                globalProgress.trialsPerSymbol = data.total_trials;
+            }
+
+            // Remove loading animation once trials start
+            const fillBar = document.getElementById('global-progress-fill');
+            if (fillBar.classList.contains('loading')) {
+                fillBar.classList.remove('loading');
+            }
+
+            // Update the trials display to show actual trial count
+            const totalTrials = globalProgress.totalSymbols * globalProgress.trialsPerSymbol;
+            const completedTrials = (globalProgress.completedSymbols * globalProgress.trialsPerSymbol) + data.trials_completed;
+            document.getElementById('progress-trials').textContent = `Trial ${completedTrials}/${totalTrials}`;
+
+            // Update percentage
+            const percent = totalTrials > 0 ? (completedTrials / totalTrials) * 100 : 0;
+            fillBar.style.width = `${percent}%`;
+            document.getElementById('global-progress-percent').textContent = `${Math.round(percent)}%`;
+
+            updateGlobalProgress();
+        }
+
+        function showComplete(data) {
+            log(`[${data.symbol}] Optimization complete!`, 'success');
+            results[data.symbol] = data.result;
+
+            // Update global progress - mark symbol as complete
+            globalProgress.completedSymbols++;
+            globalProgress.currentSymbolTrials = 0;
+            updateGlobalProgress();
+
+            const card = document.getElementById(`card-${data.symbol}`);
+            if (card) {
+                card.classList.remove('optimizing');
+                card.classList.add('complete');
+
+                const status = card.querySelector('.status-badge');
+                status.textContent = 'Complete';
+                status.classList.remove('optimizing');
+                status.classList.add('complete');
+
+                const bar = card.querySelector('.progress-bar-fill');
+                if (bar) bar.style.width = '100%';
+
+                const params = card.querySelector('.current-params');
+                const r = data.result;
+                if (params) {
+                    params.innerHTML = `
+            <div class="param"><div class="param-label">Buy Trigger</div><div class="param-value">${r.best_params.buy_trigger_pct}%</div></div>
+            <div class="param"><div class="param-label">Sell Trigger</div><div class="param-value">${r.best_params.sell_trigger_pct}%</div></div>
+            <div class="param"><div class="param-label">Compound</div><div class="param-value">${r.best_params.compound ? 'Yes' : 'No'}</div></div>
+          `;
+                }
+
+                const metrics = card.querySelector('.result-metrics');
+                if (metrics) {
+                    const score = r.metrics[document.getElementById('metric').value];
+                    const duration = r.duration_seconds || 0;
+                    const durationText = duration >= 60 ? `${Math.floor(duration / 60)}m ${Math.round(duration % 60)}s` : `${duration.toFixed(1)}s`;
+                    const sanitizedScore = sanitizeValue(score, false, 2);
+                    metrics.innerHTML = `
+            <div class="metric"><div class="metric-label">${document.getElementById('metric').value}</div><div class="metric-value ${(score != null && score !== -999999 && score > 0) ? 'positive' : 'negative'}">${sanitizedScore}</div></div>
+            <div class="metric"><div class="metric-label">Duration</div><div class="metric-value" style="color: var(--accent);">⏱️ ${durationText}</div></div>
+          `;
+                }
+            }
+        }
+
+        function showError(data) {
+            log(`[${data.symbol}] Error: ${data.message}`, 'error');
+            const card = document.getElementById(`card-${data.symbol}`);
+            if (card) {
+                card.classList.add('error');
+                const status = card.querySelector('.status-badge');
+                status.textContent = 'Error';
+            }
+        }
+
+        function ensureCard(symbol, status) {
+            if (document.getElementById(`card-${symbol}`)) return;
+
+            const container = document.getElementById('results');
+            const emptyState = container.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+
+            const card = document.createElement('div');
+            card.id = `card-${symbol}`;
+            card.className = `result-card ${status}`;
+            card.innerHTML = `
+        <div class="result-header">
+          <span class="symbol-badge">${symbol}</span>
+          <span class="status-badge ${status}">Starting</span>
+        </div>
+        <div class="progress-bar"><div class="progress-bar-fill" style="width: 0%"></div></div>
+        <div class="progress-text" style="font-size: 0.75rem; color: var(--text-secondary);">Initializing...</div>
+        <div class="metrics-grid volatility-info"></div>
+        <div class="params-display current-params">
+          <div class="param"><div class="param-label">Buy Trigger</div><div class="param-value">--</div></div>
+          <div class="param"><div class="param-label">Sell Trigger</div><div class="param-value">--</div></div>
+        </div>
+        <div class="metrics-grid result-metrics"></div>
+      `;
+            container.appendChild(card);
+        }
+
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // SPY 500 Stock List (top 300+ most liquid stocks)
+        const SPY_500_STOCKS = 'NVDA,AAPL,GOOG,GOOGL,MSFT,AMZN,AVGO,META,TSLA,BRK.B,WMT,LLY,JPM,V,ORCL,JNJ,MA,XOM,PLTR,NFLX,BAC,ABBV,COST,AMD,HD,PG,CSCO,UNH,GE,CVX,KO,CAT,WFC,IBM,MU,MS,GS,AXP,CRM,MRK,APP,RTX,PM,MCD,TMUS,TMO,AMAT,ABT,LRCX,PEP,C,DIS,ISRG,QCOM,GEV,BX,INTC,LIN,INTU,NOW,BLK,UBER,TJX,SCHW,T,AMGN,APH,BKNG,VZ,ANET,NEE,ACN,TXN,DHR,KLAC,GILD,BA,COF,SPGI,PFE,ADBE,UNP,LOW,ADI,ETN,BSX,PGR,SYK,PANW,CRWD,DE,MDT,KKR,WELL,PLD,HON,CB,COP,CEG,PH,VRTX,HOOD,HCA,LMT,NEM,ADP,BMY,CVS,MCK,CMCSA,NKE,MO,CME,DASH,SBUX,SO,ICE,GD,DELL,CDNS,SNPS,MMC,MMM,TT,DUK,APO,MCO,WM,UPS,AMT,USB,PNC,BK,GLW,SHW,ELV,NOC,MAR,ORLY,HWM,EMR,ABNB,REGN,RCL,CTAS,GM,ITW,AON,WMB,TDG,EQIX,ECL,WBD,CI,COIN,CMI,JCI,TEL,MNST,PWR,MDLZ,CSX,FCX,SPG,FDX,STX,COR,NSC,RSG,HLT,WDC,ADSK,AJG,TFC,TRV,CL,FTNT,MSI,AEP,SLB,KMI,EOG,PCAR,ROST,VST,WDAY,NXPI,SRE,PSX,PYPL,AZO,BDX,AFL,IDXX,MPC,DLR,F,APD,LHX,MET,ALL,NDAQ,URI,O,DDOG,VLO,ZTS,EA,D,GWW,EW,PSA,ROP,FAST,CAH,CBRE,MPWR,AME,BKR,ROK,OKE,AMP,CMG,AXON,DAL,CARR,DHI,FANG,TTWO,LVS,AIG,CTVA,XEL,TGT,EXC,FICO,ETR,MSCI,PAYX,YUM,PRU,OXY,GRMN,CTSH,A,KDP,CCI,KR,TRGP,TKO,VMC,PEG,GEHC,XYZ,IQV,EBAY,NUE,MLM,EL,HIG,CPRT,MCHP,WAB,HSY,RMD,KEYS,FISV,VTR,CCL,STT,SYY,SNDK,UAL,EQT,FIS,ED,EXPE,KMB,OTIS,XYL,ACGL,WEC,ODFL,KVUE,IR,LYV,NRG,PCG,HPE,RJF,HUM,FITB,TER,FOXA,MTB,WTW,CHTR,SYF,VRSK,VICI,FOX,EXR,LEN,IBKR,FSLR,DG,MTD,KHC,ADM,EME,ROL,CSGP,HBAN,DOV,TSCO,EXE,BRO,DTE,BR,ATO,EFX,DXCM,NTRS,WRB,ULTA,AEE,CBOE,STZ,IRM,DLTR,CINF,FE,AWK,ES,OMC,BIIB,TPR,STLD,CFG,JBL,AVB,PHM,STE,PPL,GIS,HUBB,TDY,VLTO,HAL,RF,CNP,LDOS,EQR,NTAP,DVN,WAT,HPQ,PPG,TROW,VRSN,KEY,WSM,ON,RL,EIX,LULU,CPAY,LH,L,NVR,DRI,PTC,CMS,LUV,TSN,PODD,IP,SBAC,EXPD,TPL,SMCI,DGX,CTRA,PFG,CHD,NI,CNC,TRMB,SW,WST,TYL,CDW,GPN,AMCR,JBHT,CHRW,INCY,GPC,PKG,ZBH,SNA,LII,BG,TTD,Q,MKC,FTV,DOW,DD,PNR,APTV,ESS,GEN,GDDY,EVRG,IT,WY,LNT,HOLX,INVH,J,IFF,COO,MAA,ALB,BBY,PSKY,FFIV,TXT,NWS,DECK,DPZ,ERIE,NWSA,LYB,SOLV,ALLE,AVY,UHS,ZBRA,KIM,EG,IEX,JKHY,MAS,VTRS,BALL,NDSN,HRL,UDR,WYNN,HII,BXP,HST,REG,CLX,AKAM,CF,BEN,BLDR,IVZ,SWK,DOC,HAS,RVTY,ALGN,EPAM,MRNA,AIZ,CPT,GL,DAY,FDS,SJM,PNW,MGM,SWKS,AES,GNRC,BAX,CRL,AOS,TECH,NCLH,TAP,APA,PAYC,HSIC,POOL,MOH,FRT,DVA,CPB,CAG,LW,MOS,SOLS,LKQ,ARE,MTCH,MHK'.split(',');
+
+        // FULL Stock List - Comprehensive list including extended sectors (400+ stocks)
+        const FULL_STOCK_LIST = 'AAPL,MSFT,GOOGL,GOOG,AMZN,NVDA,META,TSLA,BRK.B,BRK.A,JPM,V,JNJ,UNH,HD,PG,MA,XOM,LLY,AVGO,CVX,MRK,COST,ABBV,PEP,KO,ORCL,CRM,ADBE,AMD,NFLX,TMO,WMT,DIS,ACN,LIN,MCD,CSCO,ABT,TXN,DHR,INTU,CAT,VZ,CMCSA,NEE,BAC,WFC,PM,UPS,RTX,IBM,MS,PFE,INTC,LOW,UNP,AMGN,SPGI,GS,AXP,BLK,ISRG,QCOM,AMAT,DE,GE,NKE,MDT,ADI,LMT,SBUX,PLD,CB,CVS,MMC,TGT,MO,CI,BDX,ZTS,EL,DUK,SO,EQIX,ICE,SHW,CL,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,PAYX,ADP,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,OKTA,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,SNAP,ROKU,SPOT,UBER,LYFT,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,JBLU,ALK,BA,TXT,SPR,GD,NOC,HII,LHX,TDG,HEI,MTZ,PWR,URI,WSM,BBY,GPC,AZO,KMX,AN,SAH,PAG,TSCO,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,PENN,CZR,RSG,AWK,PCAR,ALB,FCX,NEM,GOLD,AA,CLF,STLD,NUE,RS,X,MT,CE,LYB,DOW,EMN,APTV,F,LCID,RIVN,FSR,NIO,XPEV,LI,HMC,TM,POR,OGE,NRG,AES,ET,EPD,MPLX,PAA,KMI,WMB,OKE,ENB,TRP,EXAS,IQV,CTLT,CRL,INCY,ALNY,NBIX,UTHR,BMRN,SRPT,FOLD,PTCT,RARE,BLUE,EDIT,NTLA,CRSP,BEAM,AMED,SEM,HCA,UHS,CNC,MOH,ELV,MDGL,AXSM,GH,PACB,TXG,VCYT,NTRA,CDNA,MYGN,BTX,OMCL,CERS,TRMB,GRMN,IRDM,VSAT,ASTS,PLTR,SOUN,AI,BBAI,UPST,AFRM,SOFI,HOOD,COIN,MSTR,RIOT,MARA,CLSK,ONTO,FORM,ASML,TSM,UMC,SMCI,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,CSIQ,FSLR,ARRY,NEP,BEP,BEPC,PLUG,BLDP,FCEL,CHPT,EVGO,QS,FREY,ALGM,ON,STM,NXPI,INFY,WIT,CTSH,EPAM,DXC,TCS,SAP,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,WK,BL,SMAR,PSTG,NTNX,VMW,LOGI,SONY,EA,TTWO,MTCH,BMBL,SPCE,RKLB,ASTR,MAXR,PL,JOBY,ACHR,EH'.split(',');
+
+        // CAP Stock List - Large Cap Focus (blue chips + growth)
+        const CAP_STOCK_LIST = 'AAPL,MSFT,NVDA,GOOGL,GOOG,AMZN,META,BRK.A,BRK.B,LLY,AVGO,TSLA,JPM,V,UNH,XOM,MA,JNJ,HD,COST,PG,ABBV,MRK,ORCL,CRM,KO,PEP,ADBE,WMT,NFLX,AMD,LIN,CSCO,ACN,MCD,TMO,INTU,DIS,NKE,ABT,CVX,TXN,AMGN,IBM,PM,UPS,LOW,NEE,RTX,MS,GS,SPGI,BLK,ISRG,QCOM,CAT,DE,SBUX,EL,PLD,MDT,AMAT,ADI,LMT,GE,AXP,CB,MMC,CI,MO,BDX,ZTS,ICE,DUK,SO,EQIX,SHW,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,ADP,PAYX,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,ROKU,SPOT,UBER,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,ALK,BA,GD,NOC,LHX,TDG,URI,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,RSG,AWK,PCAR,CUMM,ALB,FCX,NEM,AA,STLD,NUE,CE,LYB,DOW,EMN,APTV,F,ROK,KEYS,AME,IR,XYL,TT,WAB,EFX,MTB,HBAN,RF,TFC,CFG,STT,NTRS,BK,AMP,IVZ,DFS,SYF,COIN,MSTR,RIOT,MARA,CHTR,CMCSA,VZ,T,TMUS,ZS,OKTA,WDAY,NOW,SQ,PYPL,INTC,TSM,ASML,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,FSLR,PLUG,BLDP,CHPT,QS,ON,STM,NXPI,INFY,CTSH,EPAM,DXC,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,SMAR,PSTG,NTNX,VMW,LOGI,EA,TTWO,MTCH,BMBL,PLTR,AI,UPST,AFRM,SOFI,HOOD,CLS,ONTO,FORM,SMCI,GRMN,TRMB,IRDM,VSAT,ASTS,RKLB,JOBY,ACHR,PL,MAXR,SPCE'.split(',');
+
+        async function startOptimization() {
+            let symbolsInput = document.getElementById('symbols').value.trim().toUpperCase();
+
+            // Expand keywords to stock lists
+            let symbols;
+            if (symbolsInput === 'ALL') {
+                symbols = SPY_500_STOCKS;
+                log(`Expanding 'ALL' to ${symbols.length} SPY 500 stocks...`, 'info');
+            } else if (symbolsInput === 'FULL') {
+                symbols = FULL_STOCK_LIST;
+                log(`Expanding 'FULL' to ${symbols.length} extended sector stocks...`, 'info');
+            } else if (symbolsInput === 'CAP') {
+                symbols = CAP_STOCK_LIST;
+                log(`Expanding 'CAP' to ${symbols.length} large cap stocks...`, 'info');
+            } else {
+                symbols = symbolsInput.split(',').map(s => s.trim()).filter(s => s);
+            }
+
+            const startDate = document.getElementById('start-date').value;
+            const endDate = document.getElementById('end-date').value;
+            const capital = parseFloat(document.getElementById('capital').value);
+            const trials = parseInt(document.getElementById('trials').value);
+            const metric = document.getElementById('metric').value;
+            const useGpu = document.getElementById('use-gpu').checked;
+            const smartTiming = document.getElementById('smart-timing').checked;
+            const timingApproach = document.getElementById('timing-approach').value;
+
+            if (!symbols.length) {
+                log('Please enter at least one symbol, "ALL" for SPY 500, or "FULL" for extended list', 'error');
+                return;
+            }
+
+            // Save config before starting
+            saveConfig();
+
+            // Clear previous results
+            document.getElementById('results').innerHTML = '';
+
+            // Initialize and show global progress bar
+            showGlobalProgress(symbols, trials);
+
+            // Show GPU mode in log
+            if (useGpu) {
+                log('Preparing GPU-accelerated optimization (RTX 3090)...', 'info');
+            }
+
+            document.getElementById('start-btn').disabled = true;
+            document.getElementById('start-btn').textContent = 'Optimizing...';
+
+            log(`Starting optimization for: ${symbols.join(', ')}`, 'info');
+
+            try {
+                const resp = await fetch('/api/optimize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbols,
+                        start_date: startDate,
+                        end_date: endDate,
+                        capital,
+                        n_trials: trials,
+                        optimization_metric: metric,
+                        use_gpu: useGpu,
+                        smart_timing: smartTiming,
+                        timing_approach: timingApproach
+                    })
+                });
+
+                const data = await resp.json();
+                log(`Job started: ${data.job_id}`, 'info');
+            } catch (e) {
+                log(`Failed to start: ${e.message}`, 'error');
+                document.getElementById('start-btn').disabled = false;
+                document.getElementById('start-btn').textContent = 'Start Optimization';
+            }
+        }
+
+        // Toggle timing approach visibility
+        function toggleTimingApproach() {
+            const smartTimingChecked = document.getElementById('smart-timing').checked;
+            const approachGroup = document.getElementById('timing-approach-group');
+            approachGroup.style.display = smartTimingChecked ? 'block' : 'none';
+        }
+
+        // Add event listener for smart timing checkbox
+        document.getElementById('smart-timing').addEventListener('change', toggleTimingApproach);
+
+        // Initialize
+        loadConfig();
+        setupConfigAutoSave();
+        connectWebSocket();
+        loadHistory();
+    </script>
+</body>
+
+</html>
