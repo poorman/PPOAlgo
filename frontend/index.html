@@ -251,19 +251,21 @@
       </label>
     </div>
     <div class="table-wrap">
-      <table>
+      <table class="trade-table">
         <thead>
           <tr>
-            <th>Timestamp</th>
-            <th>Price</th>
-            <th>% from prev close</th>
-            <th>Purchased/Sold ($)</th>
-            <th>Action</th>
-            <th>Position size</th>
-            <th>Trade P/L %</th>
-            <th>Unrealized PnL</th>
-            <th>Realized PnL</th>
-            <th>Wallet ($)</th>
+            <th data-sort-key="timestamp">Timestamp</th>
+            <th data-sort-key="open">Open</th>
+            <th data-sort-key="price9am">9:00 price</th>
+            <th data-sort-key="price">Price</th>
+            <th data-sort-key="pctChange">% from prev close</th>
+            <th data-sort-key="notional">Purchased/Sold ($)</th>
+            <th data-sort-key="action">Action</th>
+            <th data-sort-key="position">Position size</th>
+            <th data-sort-key="reward">Trade P/L %</th>
+            <th data-sort-key="unreal">Unrealized PnL</th>
+            <th data-sort-key="realized">Realized PnL</th>
+            <th data-sort-key="wallet">Wallet ($)</th>
           </tr>
         </thead>
         <tbody id="trade-body"></tbody>

@@ -158,15 +158,21 @@ def ensure_tables():
                     symbol VARCHAR(20) NOT NULL,
                     timeframe VARCHAR(10) NOT NULL,
                     bar_date DATE NOT NULL,
-                    bar_time TIMESTAMPTZ,
-                    open_price NUMERIC(12, 4) NOT NULL,
-                    high_price NUMERIC(12, 4) NOT NULL,
-                    low_price NUMERIC(12, 4) NOT NULL,
-                    close_price NUMERIC(12, 4) NOT NULL,
+                    bar_timestamp TIMESTAMPTZ,
+                    open NUMERIC(12, 4) NOT NULL,
+                    high NUMERIC(12, 4) NOT NULL,
+                    low NUMERIC(12, 4) NOT NULL,
+                    close NUMERIC(12, 4) NOT NULL,
                     volume BIGINT,
+                    vwap NUMERIC(12, 4),
                     created_at TIMESTAMPTZ DEFAULT NOW(),
-                    UNIQUE(symbol, timeframe, bar_date, bar_time)
+                    UNIQUE(symbol, timeframe, bar_date, bar_timestamp)
                 );
+            """)
+            
+            # Add vwap column if it doesn't exist (migration for existing tables)
+            cur.execute("""
+                ALTER TABLE price_cache ADD COLUMN IF NOT EXISTS vwap NUMERIC(12, 4);
             """)
             
             # Create indexes for price cache
@@ -252,10 +258,10 @@ def convert_numpy_types(obj):
 
 
 def save_result_to_db(job_id: str, result: dict):
-    """Save optimization result to database."""
+    """Save optimization result to database. Returns inserted row id."""
     conn = get_db_conn()
     if not conn:
-        return
+        return None
     
     # Convert numpy types to native Python types
     result = convert_numpy_types(result)
@@ -285,6 +291,7 @@ def save_result_to_db(job_id: str, result: dict):
                     score = EXCLUDED.score,
                     optimal_buy_time_cdt = EXCLUDED.optimal_buy_time_cdt,
                     full_result = EXCLUDED.full_result
+                RETURNING id
             """, (
                 job_id,
                 result["symbol"],
@@ -299,10 +306,13 @@ def save_result_to_db(job_id: str, result: dict):
                 result.get("optimal_buy_time_cdt"),  # New field
                 Json(result)
             ))
+            row_id = cur.fetchone()[0]
         conn.commit()
-        logger.info(f"Saved result for {result['symbol']} (algo: {algo}) to database")
+        logger.info(f"Saved result for {result['symbol']} (algo: {algo}) to database, id={row_id}")
+        return row_id
     except Exception as e:
         logger.error(f"Failed to save result: {e}")
+        return None
     finally:
         conn.close()
 
@@ -438,13 +448,18 @@ def get_cached_prices(symbol: str, timeframe: str, start_date: str, end_date: st
             else:
                 # For intraday, check price_cache first (using actual column names)
                 cur.execute("""
-                    SELECT bar_timestamp, open, high, low, close, volume
+                    SELECT bar_timestamp, open, high, low, close, volume, vwap
                     FROM price_cache
                     WHERE symbol = %s AND timeframe = %s 
                     AND bar_date >= %s AND bar_date <= %s
                     ORDER BY bar_timestamp
                 """, (symbol.upper(), timeframe, start_date, end_date))
                 rows = cur.fetchall()
+                # #region agent log
+                import json as _json
+                with open("/app/debug.log", "a") as _f:
+                    _f.write(_json.dumps({"hypothesisId": "H5", "location": "server.py:447", "message": "get_cached_prices intraday query", "data": {"symbol": symbol, "timeframe": timeframe, "start": start_date, "end": end_date, "rows_from_price_cache": len(rows)}, "timestamp": int(__import__("time").time()*1000)}) + "\n")
+                # #endregion
                 
                 # Try legacy market_minute_bars if no data
                 if not rows:
@@ -467,7 +482,8 @@ def get_cached_prices(symbol: str, timeframe: str, start_date: str, end_date: st
                             "h": float(row[2]),
                             "l": float(row[3]),
                             "c": float(row[4]),
-                            "v": float(row[5]) if row[5] else 0
+                            "v": float(row[5]) if row[5] else 0,
+                            "vw": float(row[6]) if len(row) > 6 and row[6] else 0
                         })
                     else:
                         bars.append({
@@ -476,7 +492,8 @@ def get_cached_prices(symbol: str, timeframe: str, start_date: str, end_date: st
                             "h": float(row[2]),
                             "l": float(row[3]),
                             "c": float(row[4]),
-                            "v": float(row[5]) if row[5] else 0
+                            "v": float(row[5]) if row[5] else 0,
+                            "vw": float(row[6]) if len(row) > 6 and row[6] else 0
                         })
             return bars
     except Exception as e:
@@ -509,14 +526,15 @@ def save_prices_to_cache(symbol: str, timeframe: str, bars: list):
                 # Use actual column names from the existing table
                 cur.execute("""
                     INSERT INTO price_cache 
-                    (symbol, timeframe, bar_date, bar_timestamp, open, high, low, close, volume)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (symbol, timeframe, bar_date, bar_timestamp, open, high, low, close, volume, vwap)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (symbol, timeframe, bar_date, bar_timestamp) DO UPDATE SET
                     open = EXCLUDED.open,
                     high = EXCLUDED.high,
                     low = EXCLUDED.low,
                     close = EXCLUDED.close,
-                    volume = EXCLUDED.volume
+                    volume = EXCLUDED.volume,
+                    vwap = EXCLUDED.vwap
                 """, (
                     symbol.upper(),
                     timeframe,
@@ -526,7 +544,8 @@ def save_prices_to_cache(symbol: str, timeframe: str, bars: list):
                     bar.get("h", 0),
                     bar.get("l", 0),
                     bar.get("c", 0),
-                    bar.get("v", 0)
+                    bar.get("v", 0),
+                    bar.get("vw", None)  # VWAP from Alpaca
                 ))
             
             # Update metadata
@@ -597,6 +616,12 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
             fetch_ranges.append(((cached_max + timedelta(days=1)).strftime("%Y-%m-%d"), end_date))
     
     
+    # #region agent log
+    import json as _json
+    with open("/app/debug.log", "a") as _f:
+        _f.write(_json.dumps({"hypothesisId": "H3", "location": "server.py:600", "message": "fetch_and_cache_prices called", "data": {"symbol": symbol, "start": start_date, "end": end_date, "timeframe": timeframe, "cached_min": str(cached_min), "cached_max": str(cached_max), "fetch_ranges": [(str(a), str(b)) for a, b in fetch_ranges]}, "timestamp": int(__import__("time").time()*1000)}) + "\n")
+    # #endregion
+    
     # Fetch missing data
     for fetch_start, fetch_end in fetch_ranges:
         logger.info(f"Fetching {symbol} ({timeframe}) from {fetch_start} to {fetch_end}")
@@ -640,11 +665,17 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
                         },
                         timeout=60
                     )
+                    # #region agent log
+                    with open("/app/debug.log", "a") as _f:
+                        _f.write(_json.dumps({"hypothesisId": "H4", "location": "server.py:643", "message": "API response for 1Min data", "data": {"symbol": symbol, "chunk_start": current.strftime("%Y-%m-%d"), "chunk_end": chunk_end.strftime("%Y-%m-%d"), "status": resp.status_code, "num_bars": len(resp.json()) if resp.status_code == 200 else 0, "sample_t": resp.json()[0].get("t", "") if resp.status_code == 200 and resp.json() else ""}, "timestamp": int(__import__("time").time()*1000)}) + "\n")
+                    # #endregion
                     if resp.status_code == 200:
                         bars = resp.json()
                         if bars and len(bars) > 0:
-                            # Only save if we got intraday data (not daily fallback)
-                            if "T09:" in bars[0].get("t", "") or "T1" in bars[0].get("t", ""):
+                            # Only save if we got intraday data (contains time component in timestamp)
+                            sample_t = bars[0].get("t", "")
+                            # Check for any time component (not just daily bars like "2024-01-01T05:00:00Z")
+                            if "T" in sample_t and not sample_t.endswith("T05:00:00Z"):
                                 save_prices_to_cache(symbol, timeframe, bars)
                 except Exception as e:
                     logger.error(f"Failed to fetch intraday prices: {e}")
@@ -666,6 +697,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Import and register routers
+from routers.api_tester import router as api_tester_router
+from routers.history import router as history_router
+app.include_router(api_tester_router)
+app.include_router(history_router)
+
+# Import database functions
+from database import get_db_conn, ensure_tables, save_job_to_db, save_result_to_db, update_job_status, get_results_from_db, convert_numpy_types
+
 
 @app.on_event("startup")
 def startup():
@@ -686,6 +726,8 @@ class OptimizationRequest(BaseModel):
     symbols: List[str]
     start_date: str
     end_date: str
+    backtest_start_date: str = None  # Optional separate backtest range
+    backtest_end_date: str = None    # Optional separate backtest range
     capital: float = 100000
     n_trials: int = 200
     optimization_metric: str = "sharpe"
@@ -744,7 +786,12 @@ class StockVolatilityAnalyzer:
         }
 
 
-def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: float, compound: bool, capital: float = 100000, algo: str = "default", symbol: str = None, start_date: str = None, end_date: str = None) -> list:
+def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: float, compound: bool, capital: float = 100000, algo: str = "default", symbol: str = None, start_date: str = None, end_date: str = None, stop_loss_pct: float = None, trailing_stop_pct: float = None) -> list:
+    # #region agent log
+    import json as _json
+    with open("/app/debug.log", "a") as _f:
+        _f.write(_json.dumps({"hypothesisId": "H0", "location": "server.py:764", "message": "generate_trade_log ENTRY", "data": {"symbol": symbol, "algo": algo, "num_bars": len(bars) if bars else 0, "start": start_date, "end": end_date}, "timestamp": int(__import__("time").time()*1000)}) + "\n")
+    # #endregion
     """
     Generate a day-by-day trade log for the Analysis view with buy/sell guidance.
     
@@ -766,40 +813,114 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
     equity = capital
     
     
-    # For ChatGPT algo, try to fetch 9AM prices (using cache)
+    # For ChatGPT algos, try to fetch 10AM prices (using cache)
     price_9am_map = {}
-    if algo == "chatgpt" and symbol and start_date and end_date:
+    if algo in ("chatgpt", "chatgpt_stoploss", "chatgpt_vwap") and symbol and start_date and end_date:
         try:
             logger.info(f"Fetching 9AM prices for {symbol} (ChatGPT algo) using cache")
             
             # Use cached intraday data
             intraday_bars = fetch_and_cache_prices(symbol, start_date, end_date, "1Min")
             
+            # #region agent log
+            import json as _json
+            with open("/app/debug.log", "a") as _f:
+                _f.write(_json.dumps({"hypothesisId": "H1", "location": "server.py:776", "message": "fetch_and_cache_prices returned", "data": {"symbol": symbol, "start": start_date, "end": end_date, "num_bars": len(intraday_bars) if intraday_bars else 0, "sample_bars": [str(b.get("t", ""))[:25] for b in (intraday_bars or [])[:5]]}, "timestamp": int(__import__("time").time()*1000)}) + "\n")
+            # #endregion
             
             if intraday_bars:
-                # Build map of date -> 9AM price (9 AM Eastern = 14:00 UTC winter, 13:00 UTC summer)
-                # Look for first trade between 13:00-15:00 UTC to cover both EST and EDT
+                # Group bars by date first
+                bars_by_date = {}
                 for bar in intraday_bars:
                     bar_time = bar.get("t", "")
                     date_part = bar_time[:10] if bar_time else ""
-                    
-                    # Skip if we already have a price for this date
-                    if date_part in price_9am_map:
-                        continue
-                    
-                    # Extract hour from timestamp (handles both "T14:00:00Z" and "T14:00:00+00:00" formats)
-                    try:
-                        hour_str = bar_time[11:13] if len(bar_time) > 13 else ""
-                        hour = int(hour_str) if hour_str.isdigit() else -1
-                        
-                        # Accept trades between 13:00-15:00 UTC (9-11 AM Eastern)
-                        if 13 <= hour <= 15:
-                            price_9am_map[date_part] = bar.get("o", bar.get("c", 0))
-                    except:
-                        pass
+                    if date_part:
+                        if date_part not in bars_by_date:
+                            bars_by_date[date_part] = []
+                        bars_by_date[date_part].append(bar)
                 
+                # For each date, find the exact 10AM bar (15:00 UTC) and calculate VWAP
+                for date_part, day_bars in bars_by_date.items():
+                    best_10am_bar = None
+                    vwap_bars = []
+                    or_highs = []  # Opening range highs (9:30-10:00)
+                    or_lows = []   # Opening range lows (9:30-10:00)
+                    vwap_945_bars = []  # Bars for VWAP at 9:45
+                    
+                    for bar in day_bars:
+                        bar_time = bar.get("t", "")
+                        try:
+                            hour = int(bar_time[11:13])
+                            minute = int(bar_time[14:16])
+                            utc_minutes = hour * 60 + minute
+                            et_minutes = utc_minutes - 300  # UTC to EST
+                            if et_minutes < 0:
+                                et_minutes += 1440
+                            
+                            # Collect bars from 9:30 to 10:00 for VWAP and OR
+                            if 570 <= et_minutes <= 600:
+                                vwap_bars.append(bar)
+                                or_highs.append(bar.get("h", 0))
+                                or_lows.append(bar.get("l", 0))
+                            
+                            # Collect bars from 9:30 to 9:40 for VWAP_9:40 (robust slope)
+                            if 570 <= et_minutes <= 580:
+                                vwap_945_bars.append(bar)  # reusing variable name
+                            
+                            # Find closest bar to 10:00 AM EST (600 minutes)
+                            if best_10am_bar is None:
+                                best_10am_bar = bar
+                                best_10am_bar["_et_diff"] = abs(et_minutes - 600)
+                            else:
+                                if abs(et_minutes - 600) < best_10am_bar.get("_et_diff", 9999):
+                                    best_10am_bar = bar
+                                    best_10am_bar["_et_diff"] = abs(et_minutes - 600)
+                        except:
+                            pass
+                    
+                    # Get 10AM price and calculate VWAP at 10:00
+                    price_10am = best_10am_bar.get("c", best_10am_bar.get("o", 0)) if best_10am_bar else 0
+                    
+                    # Calculate VWAP at 10:00 (9:30 - 10:00)
+                    cum_tpv = 0
+                    cum_vol = 0
+                    for bar in vwap_bars:
+                        tp = (bar.get("h", 0) + bar.get("l", 0) + bar.get("c", 0)) / 3
+                        vol = bar.get("v", 0)
+                        cum_tpv += tp * vol
+                        cum_vol += vol
+                    
+                    vwap_to_10am = cum_tpv / cum_vol if cum_vol > 0 else price_10am
+                    
+                    # Calculate VWAP at 9:40 (9:30 - 9:40) for robust slope
+                    cum_tpv_940 = 0
+                    cum_vol_940 = 0
+                    for bar in vwap_945_bars:
+                        tp = (bar.get("h", 0) + bar.get("l", 0) + bar.get("c", 0)) / 3
+                        vol = bar.get("v", 0)
+                        cum_tpv_940 += tp * vol
+                        cum_vol_940 += vol
+                    
+                    vwap_940 = cum_tpv_940 / cum_vol_940 if cum_vol_940 > 0 else vwap_to_10am
+                    
+                    # Opening range high/low
+                    or_high = max(or_highs) if or_highs else price_10am
+                    or_low = min(or_lows) if or_lows else price_10am
+                    
+                    price_9am_map[date_part] = {
+                        "price_10am": price_10am,
+                        "vwap": vwap_to_10am,
+                        "vwap_940": vwap_940,
+                        "or_high": or_high,
+                        "or_low": or_low
+                    }
                 
-                logger.info(f"Found 9AM prices for {len(price_9am_map)} days from cache")
+                # #region agent log
+                with open("/app/debug.log", "a") as _f:
+                    _f.write(_json.dumps({"hypothesisId": "H2", "location": "server.py:802", "message": "price_10am_map built", "data": {"num_dates": len(price_9am_map), "sample_dates": list(price_9am_map.keys())[:5], "sample_prices": list(price_9am_map.values())[:5]}, "timestamp": int(__import__("time").time()*1000)}) + "\n")
+                # #endregion
+                
+                logger.info(f"Found 10AM prices for {len(price_9am_map)} days from cache")
             else:
                 logger.warning(f"No intraday data available for {symbol}")
         except Exception as e:
@@ -810,87 +931,309 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
         close_price = bar.get("c", 0)
         high_price = bar.get("h", close_price)
         low_price = bar.get("l", close_price)
-        # Get date from bar timestamp
         bar_date = bar.get("t", "")
         date_key = bar_date[:10] if bar_date else ""
-        
-        # Get 9AM price if available
-        price_9am = price_9am_map.get(date_key)
-        
         
         if open_price <= 0:
             continue
         
-        # For ChatGPT algo: Buy at 9AM if price increased by at least buy_trigger_pct
+        # =====================================================================
+        # ChatGPT 9AM Strategy (matches GPUChatGPT9AMBacktester)
+        # =====================================================================
         if algo == "chatgpt":
-            # Calculate % change from open to 9AM
-            pct_change_9am = ((price_9am - open_price) / open_price * 100) if price_9am and open_price > 0 else 0
-            
-            # ChatGPT strategy: buy at 9AM ONLY if price increased by at least buy_trigger_pct%
-            up_threshold = open_price * (1 + buy_trigger_pct / 100)
-            if price_9am and price_9am >= up_threshold:
-                bought = True
-                buy_price_actual = price_9am
+            # Get 10 AM price from intraday cache (handles both old and new format)
+            price_data = price_9am_map.get(date_key, {})
+            if isinstance(price_data, dict):
+                price_10am = price_data.get("price_10am", 0)
             else:
-                bought = False
-                buy_price_actual = None
+                price_10am = price_data  # Old format: single value
             
+            if price_10am <= 0:
+                # No 10 AM price available, skip or use open as fallback
+                price_10am = open_price
             
-            # Sell target from 9AM price
-            sell_price_target = buy_price_actual * (1 + sell_trigger_pct / 100) if buy_price_actual else None
+            # Buy threshold: open * (1 + buy_trigger)
+            buy_threshold = open_price * (1 + buy_trigger_pct / 100)
+            
+            # Buy signal: 10 AM price >= buy_threshold
+            bought = price_10am >= buy_threshold
+            buy_price = price_10am if bought else None
+            
+            # Sell threshold: open * (1 + sell_trigger) - based on OPEN, not buy price
+            sell_threshold = open_price * (1 + sell_trigger_pct / 100)
             
             # Did we hit sell target?
-            sold_at_target = bought and sell_price_target and high_price >= sell_price_target
+            sold_at_target = bought and high_price >= sell_threshold
+            
+            # Exit price: sell_threshold if target hit, else close
+            actual_sell_price = sell_threshold if sold_at_target else close_price if bought else None
             
             shares = 0
             profit = 0
-            actual_sell_price = None
+            pct_change_10am = ((price_10am - open_price) / open_price * 100) if open_price > 0 else 0
             
-            if bought and buy_price_actual:
-                shares = int(equity / buy_price_actual) if buy_price_actual > 0 else 0
+            if bought and buy_price:
+                shares = int(equity / buy_price) if buy_price > 0 else 0
                 
                 if shares > 0:
-                    if sold_at_target:
-                        actual_sell_price = sell_price_target
-                    else:
-                        actual_sell_price = close_price  # Sell at close
-                    
-                    profit = shares * (actual_sell_price - buy_price_actual)
-                    
+                    profit = shares * (actual_sell_price - buy_price)
                     if compound:
                         equity += profit
             
             trade_log.append({
                 "date": bar_date,
                 "open": round(open_price, 2),
-                "price_9am": round(price_9am, 2) if price_9am else None,
-                "pct_change_9am": round(pct_change_9am, 2) if price_9am else None,
-                "close": round(close_price, 2),
+                "price_10am": round(price_10am, 2),
+                "pct_change_10am": round(pct_change_10am, 2),
                 "high": round(high_price, 2),
                 "low": round(low_price, 2),
-                "pct_change": round(((close_price - open_price) / open_price * 100), 2) if open_price > 0 else 0,
+                "close": round(close_price, 2),
                 "bought": bought,
                 "sold_at_target": sold_at_target,
-                "buy_price": round(buy_price_actual, 2) if buy_price_actual else None,
-                "sell_price": round(sell_price_target, 2) if sell_price_target else None,
+                "buy_price": round(buy_price, 2) if buy_price else None,
+                "sell_price": round(sell_threshold, 2),
                 "actual_sell": round(actual_sell_price, 2) if actual_sell_price else None,
                 "shares": shares,
                 "profit": round(profit, 0),
                 "equity": round(equity, 0),
                 "algo": "chatgpt"
             })
+        elif algo == "chatgpt_stoploss":
+            # =====================================================================
+            # ChatGPT 9AM with Stop Loss (OPTIMIZED parameters)
+            # Entry: 10AM if +X% from open (optimized entry_trigger)
+            # Take Profit: +Y% from entry (optimized sell_trigger_pct)
+            # Stop Loss: -Z% from entry (optimized stop_loss_pct)
+            # =====================================================================
+            price_data = price_9am_map.get(date_key, {})
+            if isinstance(price_data, dict):
+                price_10am = price_data.get("price_10am", 0)
+            else:
+                price_10am = price_data  # Old format
+            if price_10am <= 0:
+                price_10am = open_price
+            
+            # Use OPTIMIZED entry trigger from buy_trigger_pct
+            entry_trigger = buy_trigger_pct / 100  # Convert from % to decimal
+            entry_threshold = open_price * (1 + entry_trigger)
+            
+            # Entry signal: 10AM price >= entry threshold
+            bought = price_10am >= entry_threshold
+            buy_price = price_10am if bought else None
+            
+            # Use OPTIMIZED take profit and stop loss from optimization result
+            take_profit_decimal = sell_trigger_pct / 100  # Convert from % to decimal
+            # Use passed stop_loss_pct if available, else use 1.5x entry trigger as fallback
+            sl_pct = stop_loss_pct if stop_loss_pct else buy_trigger_pct * 1.5
+            stop_loss_decimal = -(sl_pct / 100)  # Convert to negative decimal
+            
+            take_profit_price = buy_price * (1 + take_profit_decimal) if buy_price else 0
+            stop_loss_price = buy_price * (1 + stop_loss_decimal) if buy_price else 0
+            
+            shares = 0
+            profit = 0
+            actual_sell_price = None
+            exit_reason = None
+            pct_change_10am = ((price_10am - open_price) / open_price * 100) if open_price > 0 else 0
+            
+            if bought and buy_price:
+                shares = int(equity / buy_price) if buy_price > 0 else 0
+                
+                # Calculate trailing stop price if enabled
+                trailing_decimal = -(trailing_stop_pct / 100) if trailing_stop_pct else 0
+                trailing_stop_price = high_price * (1 + trailing_decimal) if trailing_decimal < 0 else 0
+                
+                if shares > 0:
+                    # Determine exit (TP > Trailing (if profitable) > SL > Time)
+                    if high_price >= take_profit_price:
+                        # Take profit hit
+                        actual_sell_price = take_profit_price
+                        exit_reason = "TP"
+                    elif trailing_decimal < 0 and low_price <= trailing_stop_price and trailing_stop_price > buy_price:
+                        # Trailing stop hit (only if in profit)
+                        actual_sell_price = trailing_stop_price
+                        exit_reason = "TRAIL"
+                    elif low_price <= stop_loss_price:
+                        # Stop loss hit
+                        actual_sell_price = stop_loss_price
+                        exit_reason = "SL"
+                    else:
+                        # Time exit at close
+                        actual_sell_price = close_price
+                        exit_reason = "TIME"
+                    
+                    profit = shares * (actual_sell_price - buy_price)
+                    if compound:
+                        equity += profit
+            
+            trade_log.append({
+                "date": bar_date,
+                "open": round(open_price, 2),
+                "price_10am": round(price_10am, 2),
+                "pct_change_10am": round(pct_change_10am, 2),
+                "high": round(high_price, 2),
+                "low": round(low_price, 2),
+                "close": round(close_price, 2),
+                "bought": bought,
+                "sold_at_target": exit_reason == "TP",
+                "exit_reason": exit_reason,
+                "buy_price": round(buy_price, 2) if buy_price else None,
+                "sell_price": round(take_profit_price, 2) if take_profit_price else None,
+                "stop_loss": round(stop_loss_price, 2) if stop_loss_price else None,
+                "actual_sell": round(actual_sell_price, 2) if actual_sell_price else None,
+                "shares": shares,
+                "profit": round(profit, 0),
+                "equity": round(equity, 0),
+                "algo": "chatgpt_stoploss"
+            })
+        elif algo == "chatgpt_vwap":
+            # =====================================================================
+            # ChatGPT Adaptive VWAP Strategy
+            # Entry: price > VWAP AND vwap_slope > β*or_vol AND vwap_stretch < α*or_vol
+            # =====================================================================
+            price_data = price_9am_map.get(date_key, {})
+            if isinstance(price_data, dict):
+                price_10am = price_data.get("price_10am", 0)
+                vwap = price_data.get("vwap", bar.get("c", 0))
+                vwap_940 = price_data.get("vwap_940", vwap)
+                or_high = price_data.get("or_high", 0)
+                or_low = price_data.get("or_low", 0)
+            else:
+                price_10am = price_data if price_data else bar.get("o", 0)
+                vwap = bar.get("c", 0)
+                vwap_940 = vwap
+                or_high = bar.get("h", 0)
+                or_low = bar.get("l", 0)
+            if price_10am <= 0:
+                price_10am = open_price
+            if vwap <= 0:
+                vwap = bar.get("c", 0)
+            high_price = bar.get("h", 0)
+            low_price = bar.get("l", 0)
+            close_price = bar.get("c", 0)
+            
+            # Entry parameters from optimization (TP/SL only)
+            take_profit_decimal = sell_trigger_pct / 100
+            stop_loss_decimal = -(stop_loss_pct / 100) if stop_loss_pct else -0.007
+            
+            # Simplified VWAP entry conditions (NO % threshold)
+            # Alpha = stretch threshold, Gamma = momentum threshold
+            alpha = 0.50  # vwap_stretch < 0.50 * or_vol
+            gamma = 0.25  # momentum_score > 0.25 * or_vol
+            
+            # Calculate adaptive metrics
+            # Step 1: VWAP stretch = (price_10am - vwap) / vwap
+            vwap_stretch = (price_10am - vwap) / vwap if vwap > 0 else 0
+            
+            # Step 2: VWAP-anchored opening range volatility
+            or_vol = max(or_high - vwap, vwap - or_low) / vwap if vwap > 0 else 0.02
+            
+            # Step 3: Robust VWAP slope = (vwap_10:00 - vwap_9:40) / vwap_9:40
+            vwap_slope = (vwap - vwap_940) / vwap_940 if vwap_940 > 0 else 0
+            
+            # Step 4: Momentum score = (price_10am - open) / open
+            momentum_score = (price_10am - open_price) / open_price if open_price > 0 else 0
+            
+            # Determine skip reason if trade not taken
+            skip_reason = None
+            
+            # Simplified VWAP conditions (NO % threshold):
+            # 1. price_10am > vwap (price above VWAP)
+            price_above_vwap = price_10am > vwap and vwap > 0
+            
+            # 2. vwap_slope > 0 (VWAP trending up)
+            slope_ok = vwap_slope > 0
+            
+            # 3. vwap_stretch < 0.50 * or_vol (not too extended)
+            stretch_ok = vwap_stretch < alpha * or_vol if or_vol > 0 else vwap_stretch < 0.01
+            
+            # 4. momentum_score > 0.25 * or_vol (sufficient momentum)
+            momentum_ok = momentum_score > gamma * or_vol if or_vol > 0 else momentum_score > 0.005
+            
+            vwap_ok = price_above_vwap and slope_ok and stretch_ok and momentum_ok
+            
+            # Skip reason (in priority order)
+            if not price_above_vwap:
+                if vwap <= 0:
+                    skip_reason = "No VWAP"
+                else:
+                    skip_reason = "$ < VWAP"
+            elif not slope_ok:
+                skip_reason = f"slope↓ ({vwap_slope*100:.2f}%)"
+            elif not stretch_ok:
+                skip_reason = f"stretch↑ ({vwap_stretch*100:.2f}%)"
+            elif not momentum_ok:
+                skip_reason = f"mom↓ ({momentum_score*100:.2f}%)"
+            
+            # Entry: ALL VWAP conditions passed (no % threshold)
+            bought = vwap_ok
+            
+            buy_price = price_10am if bought else None
+            take_profit_price = price_10am * (1 + take_profit_decimal) if bought else None
+            stop_loss_price = open_price if bought else None  # SL = Open price
+            actual_sell_price = None
+            exit_reason = None
+            pct_change_10am = ((price_10am - open_price) / open_price * 100) if open_price > 0 else 0
+            shares = 0  # Initialize to prevent UnboundLocalError
+            profit = 0  # Initialize to prevent UnboundLocalError
+            
+            if bought and buy_price:
+                shares = int(equity / buy_price) if buy_price > 0 else 0
+                
+                if shares > 0:
+                    # Mean reversion: TP or CLOSE only (no SL - let it ride)
+                    if high_price >= take_profit_price:
+                        actual_sell_price = take_profit_price
+                        exit_reason = "TP"
+                    else:
+                        # Exit at close - capture mean reversion recovery profits
+                        actual_sell_price = close_price
+                        exit_reason = "CLOSE"
+                    
+                    profit = shares * (actual_sell_price - buy_price)
+                    if compound:
+                        equity += profit
+            
+            trade_log.append({
+                "date": bar_date,
+                "open": round(open_price, 2),
+                "price_10am": round(price_10am, 2),
+                "vwap": round(vwap, 2),
+                "pct_change_10am": round(pct_change_10am, 2),
+                "high": round(high_price, 2),
+                "low": round(low_price, 2),
+                "close": round(close_price, 2),
+                "bought": bought,
+                "sold_at_target": exit_reason == "TP",
+                "exit_reason": exit_reason,
+                "skip_reason": skip_reason,  # Why trade was not taken
+                "buy_price": round(buy_price, 2) if buy_price else None,
+                "sell_price": round(take_profit_price, 2) if take_profit_price else None,
+                "stop_loss": round(stop_loss_price, 2) if stop_loss_price else None,
+                "actual_sell": round(actual_sell_price, 2) if actual_sell_price else None,
+                "shares": shares,
+                "profit": round(profit, 0),
+                "equity": round(equity, 0),
+                "algo": "chatgpt_vwap"
+            })
         else:
-            # Default algo: buy on dip
-            # Calculate % change from open to close
-            pct_change_open_close = ((close_price - open_price) / open_price) * 100
+            # =====================================================================
+            # Dipper Strategy: Breakout (matches GPUBatchBacktester)
+            # =====================================================================
+            # Get previous close for reference
+            prev_close = bars[i-1].get("c", 0) if i > 0 else open_price
             
-            # Calculate buy price target (price must drop this much to trigger buy)
-            buy_price_target = open_price * (1 - buy_trigger_pct / 100)
+            if prev_close <= 0:
+                continue
             
-            # Check if buy was triggered (low went below buy target)
-            bought = low_price <= buy_price_target
+            # Buy signal: high >= prev_close * (1 + buy_trigger)
+            buy_price_target = prev_close * (1 + buy_trigger_pct / 100)
+            bought = high_price >= buy_price_target
             
-            # Calculate sell price target (from buy price)
+            # Calculate pct change from prev_close to high
+            pct_change = ((high_price - prev_close) / prev_close * 100) if prev_close > 0 else 0
+            
+            # Sell target from buy price
             sell_price_target = buy_price_target * (1 + sell_trigger_pct / 100)
             
             # Did we hit sell target?
@@ -901,16 +1244,13 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
             actual_sell_price = None
             
             if bought:
-                # Calculate how many shares we can buy
-                buy_price = buy_price_target  # Assume we buy at trigger price
+                buy_price = buy_price_target
                 shares = int(equity / buy_price) if buy_price > 0 else 0
                 
                 if shares > 0:
                     if sold_at_target:
-                        # Sold at target
                         actual_sell_price = sell_price_target
                     else:
-                        # Sold at close
                         actual_sell_price = close_price
                     
                     profit = shares * (actual_sell_price - buy_price)
@@ -920,12 +1260,12 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
             
             trade_log.append({
                 "date": bar_date,
+                "prev_close": round(prev_close, 2),
                 "open": round(open_price, 2),
-                "price_9am": round(price_9am, 2) if price_9am else None,
-                "close": round(close_price, 2),
                 "high": round(high_price, 2),
                 "low": round(low_price, 2),
-                "pct_change": round(pct_change_open_close, 2),
+                "close": round(close_price, 2),
+                "pct_change": round(pct_change, 2),
                 "bought": bought,
                 "sold_at_target": sold_at_target,
                 "buy_price": round(buy_price_target, 2),
@@ -1202,7 +1542,7 @@ async def optimize_buy_time_joint(
         result = {
             "buy_trigger": best_params["buy_trigger"],
             "sell_trigger": best_params["sell_trigger"], 
-            "compound": best_params["compound"],
+            "compound": True,  # Always compound
             "optimal_buy_time_cdt": best_buy_time,
             "best_score": study.best_value
         }
@@ -1326,15 +1666,46 @@ async def optimize_stock(
     print(f"[OPTIMIZE] Starting optimization for {symbol}, algo={config.algo}", flush=True)
     sys.stdout.flush()
     
-    await broadcast_message({
-        "type": "status",
-        "job_id": job_id,
-        "symbol": symbol,
-        "status": "fetching_data",
-        "message": f"Fetching price data for {symbol} (using cache)..."
-    })
+    # Check cache range first to determine if we need to download missing data
+    from datetime import datetime, timedelta
+    cached_min, cached_max = get_cached_price_range(symbol.upper(), "1Day")
+    start_dt = datetime.strptime(config.start_date, "%Y-%m-%d")
+    end_dt = datetime.strptime(config.end_date, "%Y-%m-%d")
     
-    # Fetch price data with caching
+    need_download = False
+    download_msg = ""
+    if cached_min is None:
+        need_download = True
+        download_msg = f"Downloading price data for {symbol}..."
+    else:
+        if start_dt.date() < cached_min:
+            need_download = True
+            download_msg = f"Downloading data for {symbol} ({config.start_date} to {cached_min})..."
+        if end_dt.date() > cached_max:
+            need_download = True
+            if download_msg:
+                download_msg = f"Downloading missing data for {symbol}..."
+            else:
+                download_msg = f"Downloading data for {symbol} ({cached_max} to {config.end_date})..."
+    
+    if need_download:
+        await broadcast_message({
+            "type": "status",
+            "job_id": job_id,
+            "symbol": symbol,
+            "status": "downloading_data",
+            "message": download_msg
+        })
+    else:
+        await broadcast_message({
+            "type": "status",
+            "job_id": job_id,
+            "symbol": symbol,
+            "status": "fetching_data",
+            "message": f"Using cached data for {symbol} ({cached_min} to {cached_max})..."
+        })
+    
+    # Fetch price data with caching (downloads missing ranges automatically)
     try:
         bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Day")
         
@@ -1377,8 +1748,9 @@ async def optimize_stock(
     data_range_warning = None
     
     # Check if actual data range differs from requested range
+    # Note: With Stocks Developer plan ($79/mo), we have 10 years of historical data
     if actual_start_date and actual_start_date > config.start_date:
-        data_range_warning = f"⚠️ Data only available from {actual_start_date}. Requested start {config.start_date} not available (requires Polygon.io paid plan)."
+        data_range_warning = f"⚠️ Data only available from {actual_start_date}. Requested start {config.start_date} not available (stock may not have been trading then)."
         await broadcast_message({
             "type": "warning",
             "job_id": job_id,
@@ -1417,53 +1789,366 @@ async def optimize_stock(
         })
         
         try:
-            from gpu_backtest import run_gpu_optimization
+            algo_type = getattr(config, 'algo', 'default') or 'default'
             
-            # Calculate expected combinations for progress display
-            buy_range = (bounds["buy_trigger"][0]/100, bounds["buy_trigger"][1]/100, 0.001)
-            sell_range = (bounds["sell_trigger"][0]/100, bounds["sell_trigger"][1]/100, 0.001)
-            
-            import numpy as np
-            buy_count = len(np.arange(buy_range[0], buy_range[1], buy_range[2]))
-            sell_count = len(np.arange(sell_range[0], sell_range[1], sell_range[2]))
-            total_combinations = buy_count * sell_count
-            
-            # Send progress: preparing GPU
-            await broadcast_message({
-                "type": "progress",
-                "job_id": job_id,
-                "symbol": symbol,
-                "trials_completed": 0,
-                "total_trials": total_combinations,
-                "best_score": 0,
-                "best_params": {},
-                "phase": "gpu_preparing"
-            })
-            
-            # Run GPU optimization in thread pool
-            loop = asyncio.get_event_loop()
-            
-            # Send progress: processing started
-            await broadcast_message({
-                "type": "progress",
-                "job_id": job_id,
-                "symbol": symbol,
-                "trials_completed": int(total_combinations * 0.1),
-                "total_trials": total_combinations,
-                "best_score": 0,
-                "best_params": {},
-                "phase": "gpu_processing"
-            })
-            
-            gpu_result = await loop.run_in_executor(
-                None, 
-                run_gpu_optimization,
-                bars,
-                config.capital,
-                buy_range,
-                sell_range,
-                config.optimization_metric
-            )
+            # ChatGPT 9AM Strategy uses different backtester
+            if algo_type == "chatgpt":
+                from gpu_backtest import run_chatgpt_9am_optimization
+                
+                await broadcast_message({
+                    "type": "status",
+                    "job_id": job_id,
+                    "symbol": symbol,
+                    "status": "fetching_10am_prices",
+                    "message": f"Fetching 10 AM prices for ChatGPT 9AM Strategy..."
+                })
+                
+                # Fetch 10 AM prices from intraday cache
+                intraday_bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Min")
+                
+                # Build map of date -> 10 AM price (find exact 10AM bar)
+                price_10am_map = {}
+                bars_by_date = {}
+                for bar in intraday_bars or []:
+                    bar_time = bar.get("t", "")
+                    date_part = bar_time[:10] if bar_time else ""
+                    if date_part:
+                        if date_part not in bars_by_date:
+                            bars_by_date[date_part] = []
+                        bars_by_date[date_part].append(bar)
+                
+                for date_part, day_bars in bars_by_date.items():
+                    best_10am_bar = None
+                    for bar in day_bars:
+                        bar_time = bar.get("t", "")
+                        try:
+                            hour = int(bar_time[11:13])
+                            minute = int(bar_time[14:16])
+                            utc_minutes = hour * 60 + minute
+                            et_minutes = utc_minutes - 300  # UTC to EST
+                            if et_minutes < 0:
+                                et_minutes += 1440
+                            
+                            # Find closest bar to 10:00 AM EST (600 minutes)
+                            if best_10am_bar is None:
+                                best_10am_bar = bar
+                                best_10am_bar["_et_diff"] = abs(et_minutes - 600)
+                            else:
+                                if abs(et_minutes - 600) < best_10am_bar.get("_et_diff", 9999):
+                                    best_10am_bar = bar
+                                    best_10am_bar["_et_diff"] = abs(et_minutes - 600)
+                        except:
+                            pass
+                    
+                    if best_10am_bar:
+                        price_10am_map[date_part] = best_10am_bar.get("c", best_10am_bar.get("o", 0))
+                
+                logger.info(f"Found 10AM prices for {len(price_10am_map)} days for ChatGPT strategy")
+                
+                # Add 10 AM prices to bars
+                bars_with_10am = []
+                for bar in bars:
+                    bar_date = bar.get("t", "")[:10] if bar.get("t") else ""
+                    new_bar = dict(bar)
+                    new_bar["price_10am"] = price_10am_map.get(bar_date, bar.get("o", 0))
+                    bars_with_10am.append(new_bar)
+                
+                # ChatGPT uses different parameter ranges (smaller buy triggers since buying on up move)
+                buy_range = (0.001, 0.03, 0.001)  # 0.1% to 3%
+                sell_range = (0.01, 0.10, 0.002)   # 1% to 10%
+                
+                import numpy as np
+                total_combinations = len(np.arange(buy_range[0], buy_range[1], buy_range[2])) * \
+                                    len(np.arange(sell_range[0], sell_range[1], sell_range[2]))
+                
+                await broadcast_message({
+                    "type": "progress",
+                    "job_id": job_id,
+                    "symbol": symbol,
+                    "trials_completed": 0,
+                    "total_trials": total_combinations,
+                    "best_score": 0,
+                    "best_params": {},
+                    "phase": "gpu_preparing"
+                })
+                
+                loop = asyncio.get_event_loop()
+                gpu_result = await loop.run_in_executor(
+                    None,
+                    run_chatgpt_9am_optimization,
+                    bars_with_10am,
+                    config.capital,
+                    buy_range,
+                    sell_range,
+                    config.optimization_metric
+                )
+            elif algo_type == "chatgpt_stoploss":
+                # ChatGPT 9AM with Stop Loss - Fixed parameters
+                from gpu_backtest import run_chatgpt_stoploss_optimization
+                
+                await broadcast_message({
+                    "type": "status",
+                    "job_id": job_id,
+                    "symbol": symbol,
+                    "status": "fetching_10am_prices",
+                    "message": f"Fetching 10 AM prices for ChatGPT Stop Loss Strategy..."
+                })
+                
+                # Fetch 10 AM prices from intraday cache
+                intraday_bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Min")
+                
+                # Build map of date -> 10 AM price (find exact 10AM bar)
+                price_10am_map = {}
+                bars_by_date = {}
+                for bar in intraday_bars or []:
+                    bar_time = bar.get("t", "")
+                    date_part = bar_time[:10] if bar_time else ""
+                    if date_part:
+                        if date_part not in bars_by_date:
+                            bars_by_date[date_part] = []
+                        bars_by_date[date_part].append(bar)
+                
+                for date_part, day_bars in bars_by_date.items():
+                    best_10am_bar = None
+                    for bar in day_bars:
+                        bar_time = bar.get("t", "")
+                        try:
+                            hour = int(bar_time[11:13])
+                            minute = int(bar_time[14:16])
+                            utc_minutes = hour * 60 + minute
+                            et_minutes = utc_minutes - 300  # UTC to EST
+                            if et_minutes < 0:
+                                et_minutes += 1440
+                            
+                            # Find closest bar to 10:00 AM EST (600 minutes)
+                            if best_10am_bar is None:
+                                best_10am_bar = bar
+                                best_10am_bar["_et_diff"] = abs(et_minutes - 600)
+                            else:
+                                if abs(et_minutes - 600) < best_10am_bar.get("_et_diff", 9999):
+                                    best_10am_bar = bar
+                                    best_10am_bar["_et_diff"] = abs(et_minutes - 600)
+                        except:
+                            pass
+                    
+                    if best_10am_bar:
+                        price_10am_map[date_part] = best_10am_bar.get("c", best_10am_bar.get("o", 0))
+                
+                logger.info(f"Found 10AM prices for {len(price_10am_map)} days for ChatGPT Stop Loss")
+                
+                # Add 10 AM prices to bars
+                bars_with_10am = []
+                for bar in bars:
+                    bar_date = bar.get("t", "")[:10] if bar.get("t") else ""
+                    new_bar = dict(bar)
+                    new_bar["price_10am"] = price_10am_map.get(bar_date, bar.get("o", 0))
+                    bars_with_10am.append(new_bar)
+                
+                # Grid search ranges for ChatGPT Stop Loss
+                entry_range = (0.003, 0.020, 0.003)   # Entry: 0.3% to 2% above open
+                tp_range = (0.008, 0.035, 0.004)      # Take Profit: 0.8% to 3.5%
+                sl_range = (-0.035, -0.008, 0.004)    # Stop Loss: -3.5% to -0.8%
+                trailing_range = (-0.025, -0.005, 0.004)  # Trailing Stop: -2.5% to -0.5%
+                
+                import numpy as np
+                n_entry = len(np.arange(entry_range[0], entry_range[1], entry_range[2]))
+                n_tp = len(np.arange(tp_range[0], tp_range[1], tp_range[2]))
+                n_sl = len(np.arange(sl_range[0], sl_range[1], sl_range[2]))
+                n_trail = len(np.arange(trailing_range[0], trailing_range[1], trailing_range[2])) + 1  # +1 for disabled
+                n_filter = 2  # Trend filter on/off
+                total_combinations = n_entry * n_tp * n_sl * n_trail * n_filter
+                
+                await broadcast_message({
+                    "type": "progress",
+                    "job_id": job_id,
+                    "symbol": symbol,
+                    "trials_completed": 0,
+                    "total_trials": total_combinations,
+                    "best_score": 0,
+                    "best_params": {},
+                    "phase": "gpu_preparing"
+                })
+                
+                loop = asyncio.get_event_loop()
+                gpu_result = await loop.run_in_executor(
+                    None,
+                    run_chatgpt_stoploss_optimization,
+                    bars_with_10am,
+                    config.capital,
+                    entry_range,
+                    tp_range,
+                    sl_range,
+                    trailing_range,
+                    config.optimization_metric
+                )
+            elif algo_type == "chatgpt_vwap":
+                # ChatGPT with VWAP - Uses SAME optimization as ChatGPT 9AM
+                # VWAP filter is applied only during backtesting/trade log generation
+                from gpu_backtest import run_chatgpt_9am_optimization
+                
+                await broadcast_message({
+                    "type": "status",
+                    "job_id": job_id,
+                    "symbol": symbol,
+                    "status": "fetching_vwap_data",
+                    "message": f"Fetching 10 AM prices and VWAP data..."
+                })
+                
+                # Fetch intraday data for 10AM prices and VWAP
+                intraday_bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Min")
+                
+                # Build map of date -> {price_10am, vwap} from intraday bars
+                vwap_data_map = {}
+                # Group bars by date first
+                bars_by_date = {}
+                for bar in intraday_bars or []:
+                    bar_time = bar.get("t", "")
+                    date_part = bar_time[:10] if bar_time else ""
+                    if date_part:
+                        if date_part not in bars_by_date:
+                            bars_by_date[date_part] = []
+                        bars_by_date[date_part].append(bar)
+                
+                # For each date, find the 10AM bar and calculate VWAP from 9:30 to 10AM
+                for date_part, day_bars in bars_by_date.items():
+                    price_10am = None
+                    best_10am_bar = None
+                    vwap_bars = []
+                    
+                    for bar in day_bars:
+                        bar_time = bar.get("t", "")
+                        try:
+                            # Parse UTC hour and minute
+                            hour = int(bar_time[11:13])
+                            minute = int(bar_time[14:16])
+                            utc_minutes = hour * 60 + minute
+                            et_minutes = utc_minutes - 300  # UTC to EST
+                            if et_minutes < 0:
+                                et_minutes += 1440
+                            
+                            # 9:30 AM EST = 570 minutes, 10:00 AM EST = 600 minutes
+                            # Collect bars from 9:30 to 10:00 for VWAP calculation
+                            if 570 <= et_minutes <= 600:
+                                vwap_bars.append(bar)
+                            
+                            # Find exact 10:00 AM EST bar (600 minutes or closest)
+                            if best_10am_bar is None:
+                                best_10am_bar = bar
+                                best_10am_bar["_et_diff"] = abs(et_minutes - 600)
+                            else:
+                                if abs(et_minutes - 600) < best_10am_bar.get("_et_diff", 9999):
+                                    best_10am_bar = bar
+                                    best_10am_bar["_et_diff"] = abs(et_minutes - 600)
+                        except:
+                            pass
+                    
+                    # Get 10AM price from closest bar
+                    if best_10am_bar:
+                        price_10am = best_10am_bar.get("c", best_10am_bar.get("o", 0))
+                    
+                    # Calculate VWAP from 9:30 to 10AM
+                    cum_tpv = 0
+                    cum_vol = 0
+                    for bar in vwap_bars:
+                        tp = (bar.get("h", 0) + bar.get("l", 0) + bar.get("c", 0)) / 3
+                        vol = bar.get("v", 0)
+                        cum_tpv += tp * vol
+                        cum_vol += vol
+                    
+                    vwap_to_10am = cum_tpv / cum_vol if cum_vol > 0 else (price_10am or 0)
+                    
+                    vwap_data_map[date_part] = {
+                        "price_10am": price_10am or 0,
+                        "vwap": vwap_to_10am
+                    }
+                
+                logger.info(f"Found VWAP data for {len(vwap_data_map)} days for ChatGPT VWAP")
+                
+                # Add 10AM prices (and VWAP for trade log) to bars
+                bars_with_10am = []
+                for bar in bars:
+                    bar_date = bar.get("t", "")[:10] if bar.get("t") else ""
+                    new_bar = dict(bar)
+                    vwap_info = vwap_data_map.get(bar_date, {})
+                    new_bar["price_10am"] = vwap_info.get("price_10am", bar.get("o", 0))
+                    new_bar["vwap"] = vwap_info.get("vwap", bar.get("c", 0))  # Store for trade log
+                    bars_with_10am.append(new_bar)
+                
+                # Use SAME parameter ranges and optimization as ChatGPT 9AM
+                buy_range = (0.001, 0.03, 0.001)  # 0.1% to 3%
+                sell_range = (0.01, 0.10, 0.002)   # 1% to 10%
+                
+                import numpy as np
+                total_combinations = len(np.arange(buy_range[0], buy_range[1], buy_range[2])) * \
+                                    len(np.arange(sell_range[0], sell_range[1], sell_range[2]))
+                
+                await broadcast_message({
+                    "type": "progress",
+                    "job_id": job_id,
+                    "symbol": symbol,
+                    "trials_completed": 0,
+                    "total_trials": total_combinations,
+                    "best_score": 0,
+                    "best_params": {},
+                    "phase": "gpu_preparing"
+                })
+                
+                # Use SAME optimization as ChatGPT 9AM (no VWAP filter during optimization)
+                loop = asyncio.get_event_loop()
+                gpu_result = await loop.run_in_executor(
+                    None,
+                    run_chatgpt_9am_optimization,
+                    bars_with_10am,
+                    config.capital,
+                    buy_range,
+                    sell_range,
+                    config.optimization_metric
+                )
+            else:
+                # Default Dipper (breakout) strategy
+                from gpu_backtest import run_gpu_optimization
+                
+                buy_range = (bounds["buy_trigger"][0]/100, bounds["buy_trigger"][1]/100, 0.001)
+                sell_range = (bounds["sell_trigger"][0]/100, bounds["sell_trigger"][1]/100, 0.001)
+                
+                import numpy as np
+                buy_count = len(np.arange(buy_range[0], buy_range[1], buy_range[2]))
+                sell_count = len(np.arange(sell_range[0], sell_range[1], sell_range[2]))
+                total_combinations = buy_count * sell_count
+                
+                await broadcast_message({
+                    "type": "progress",
+                    "job_id": job_id,
+                    "symbol": symbol,
+                    "trials_completed": 0,
+                    "total_trials": total_combinations,
+                    "best_score": 0,
+                    "best_params": {},
+                    "phase": "gpu_preparing"
+                })
+                
+                loop = asyncio.get_event_loop()
+                
+                await broadcast_message({
+                    "type": "progress",
+                    "job_id": job_id,
+                    "symbol": symbol,
+                    "trials_completed": int(total_combinations * 0.1),
+                    "total_trials": total_combinations,
+                    "best_score": 0,
+                    "best_params": {},
+                    "phase": "gpu_processing"
+                })
+                
+                gpu_result = await loop.run_in_executor(
+                    None, 
+                    run_gpu_optimization,
+                    bars,
+                    config.capital,
+                    buy_range,
+                    sell_range,
+                    config.optimization_metric
+                )
             
             # Send progress: processing complete
             await broadcast_message({
@@ -1540,20 +2225,56 @@ async def optimize_stock(
             result["algo"] = algo_type
             
             # Generate trade log for Analysis view
+            # Use backtest dates if provided, otherwise use optimization dates
+            bt_start = config.backtest_start_date or config.start_date
+            bt_end = config.backtest_end_date or config.end_date
+            
+            # If backtest dates differ, fetch new price data for backtest range
+            if bt_start != config.start_date or bt_end != config.end_date:
+                logger.info(f"Fetching price data for backtest range: {bt_start} to {bt_end}")
+                backtest_bars = fetch_and_cache_prices(symbol, bt_start, bt_end)
+                trade_log_bars = backtest_bars if backtest_bars else bars
+            else:
+                trade_log_bars = bars
+            
+            # Broadcast: Generating trade log
+            n_trade_log_bars = len(trade_log_bars)
+            await broadcast_message({
+                "type": "status",
+                "job_id": job_id,
+                "symbol": symbol,
+                "status": "generating_trade_log",
+                "message": f"Generating trade log ({n_trade_log_bars} bars)..."
+            })
+            
             result["trade_log"] = generate_trade_log(
-                bars,
+                trade_log_bars,
                 result["best_params"]["buy_trigger_pct"],
                 result["best_params"]["sell_trigger_pct"],
                 result["best_params"]["compound"],
                 config.capital,
                 algo=algo_type,
                 symbol=symbol,
-                start_date=config.start_date,
-                end_date=config.end_date
+                start_date=bt_start,
+                end_date=bt_end,
+                stop_loss_pct=result["best_params"].get("stop_loss_pct"),
+                trailing_stop_pct=result["best_params"].get("trailing_stop_pct")
             )
+            result["backtest_start_date"] = bt_start
+            result["backtest_end_date"] = bt_end
+            
+            # Broadcast: Saving to database
+            await broadcast_message({
+                "type": "status",
+                "job_id": job_id,
+                "symbol": symbol,
+                "status": "saving_to_db",
+                "message": f"Saving results ({len(result.get('trade_log', []))} trades)..."
+            })
             
             # Save result to database
-            save_result_to_db(job_id, result)
+            history_id = save_result_to_db(job_id, result)
+            result["history_id"] = history_id  # Add to result for frontend
             
             await broadcast_message({
                 "type": "complete",
@@ -1673,7 +2394,7 @@ async def optimize_stock(
         "best_params": {
             "buy_trigger_pct": round(best_params["buy_trigger"], 2),
             "sell_trigger_pct": round(best_params["sell_trigger"], 2),
-            "compound": best_params["compound"],
+            "compound": True,  # Always compound for consistent results
         },
         "metrics": {
             config.optimization_metric: sanitize_metric(study.best_value),
@@ -1737,20 +2458,37 @@ async def optimize_stock(
     result["algo"] = algo_type
     
     # Generate trade log for Analysis view
+    # Use backtest dates if provided, otherwise use optimization dates
+    bt_start = config.backtest_start_date or config.start_date
+    bt_end = config.backtest_end_date or config.end_date
+    
+    # If backtest dates differ, fetch new price data for backtest range
+    if bt_start != config.start_date or bt_end != config.end_date:
+        logger.info(f"Fetching price data for backtest range: {bt_start} to {bt_end}")
+        backtest_bars = fetch_and_cache_prices(symbol, bt_start, bt_end)
+        trade_log_bars = backtest_bars if backtest_bars else bars
+    else:
+        trade_log_bars = bars
+    
     result["trade_log"] = generate_trade_log(
-        bars,
+        trade_log_bars,
         result["best_params"]["buy_trigger_pct"],
         result["best_params"]["sell_trigger_pct"],
         result["best_params"]["compound"],
         config.capital,
         algo=algo_type,
         symbol=symbol,
-        start_date=config.start_date,
-        end_date=config.end_date
+        start_date=bt_start,
+        end_date=bt_end,
+        stop_loss_pct=result["best_params"].get("stop_loss_pct"),
+        trailing_stop_pct=result["best_params"].get("trailing_stop_pct")
     )
+    result["backtest_start_date"] = bt_start
+    result["backtest_end_date"] = bt_end
     
     # Save result to database
-    save_result_to_db(job_id, result)
+    history_id = save_result_to_db(job_id, result)
+    result["history_id"] = history_id  # Add to result for frontend
     
     await broadcast_message({
         "type": "complete",
@@ -1788,6 +2526,29 @@ async def websocket_endpoint(websocket: WebSocket):
         active_connections.remove(websocket)
 
 
+# Track cancelled jobs
+cancelled_jobs = set()
+
+
+class CancelRequest(BaseModel):
+    job_ids: List[str]
+
+
+@app.post("/api/cancel")
+async def cancel_optimization(request: CancelRequest):
+    """Cancel running optimizations."""
+    for job_id in request.job_ids:
+        cancelled_jobs.add(job_id)
+        logger.info(f"Cancellation requested for job: {job_id}")
+    
+    return {"status": "cancelled", "message": f"Cancelled {len(request.job_ids)} job(s)", "job_ids": request.job_ids}
+
+
+def is_job_cancelled(job_id: str) -> bool:
+    """Check if a job has been cancelled."""
+    return job_id in cancelled_jobs
+
+
 @app.post("/api/optimize")
 async def start_optimization(request: OptimizationRequest):
     """Start optimization for multiple stocks."""
@@ -1803,6 +2564,17 @@ async def start_optimization(request: OptimizationRequest):
     async def run_all():
         results = {}
         for symbol in request.symbols:
+            # Check if job was cancelled
+            if is_job_cancelled(job_id):
+                logger.info(f"Job {job_id} cancelled, stopping at symbol {symbol}")
+                await broadcast_message({
+                    "type": "cancelled",
+                    "job_id": job_id,
+                    "message": "Optimization cancelled by user"
+                })
+                cancelled_jobs.discard(job_id)  # Clean up
+                return results
+            
             result = await optimize_stock(symbol, request, job_id)
             if result:
                 results[symbol] = result
@@ -1877,6 +2649,10 @@ async def get_analysis(history_id: int):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+# NOTE: /api/price-compare endpoint moved to routers/api_tester.py
+# The endpoint is now imported and registered via app.include_router()
 
 
 @app.get("/api/price-cache/check/{symbol}")
@@ -1993,124 +2769,10 @@ async def clear_price_cache(symbol: str, timeframe: str = None):
         conn.close()
 
 
-@app.get("/api/history")
-async def get_history(limit: int = None):
-    """Get optimization history from database."""
-    conn = get_db_conn()
-    if not conn:
-        return []
-    
-    try:
-        with conn.cursor() as cur:
-            query = """
-                SELECT 
-                    r.id,
-                    r.job_id,
-                    r.symbol,
-                    r.buy_trigger_pct,
-                    r.sell_trigger_pct,
-                    r.compound,
-                    r.optimized_for,
-                    r.score,
-                    r.volatility_avg_range,
-                    r.volatility_max_gain,
-                    r.volatility_score,
-                    r.optimal_buy_time_cdt,
-                    r.created_at,
-                    j.start_date,
-                    j.end_date,
-                    j.capital,
-                    j.n_trials,
-                    r.full_result->'metrics'->>'total_return' as total_return,
-                    r.full_result->'metrics'->>'win_rate' as win_rate,
-                    r.full_result->'metrics'->>'sharpe' as sharpe_from_json,
-                    r.full_result->>'duration_seconds' as duration_seconds,
-                    r.full_result->>'method' as method,
-                    r.full_result->>'algo' as algo,
-                    r.full_result->'trade_log' as trade_log,
-                    j.smart_timing
-                FROM optimizer_results r
-                LEFT JOIN optimizer_jobs j ON r.job_id = j.job_id
-                ORDER BY r.created_at DESC
-            """
-            if limit:
-                query += " LIMIT %s"
-                cur.execute(query, (limit,))
-            else:
-                cur.execute(query)
-            
-            columns = [desc[0] for desc in cur.description]
-            rows = cur.fetchall()
-            
-            results = []
-            for row in rows:
-                result = dict(zip(columns, row))
-                # Convert datetime to string
-                if result.get("created_at"):
-                    result["created_at"] = result["created_at"].isoformat()
-                if result.get("start_date"):
-                    result["start_date"] = str(result["start_date"])
-                if result.get("end_date"):
-                    result["end_date"] = str(result["end_date"])
-                # Convert Decimal to float
-                for key in ["buy_trigger_pct", "sell_trigger_pct", "score", 
-                           "volatility_avg_range", "volatility_max_gain", 
-                           "volatility_score", "capital", "total_return", "win_rate", "sharpe_from_json"]:
-                    if result.get(key) is not None:
-                        try:
-                            result[key] = float(result[key])
-                        except (ValueError, TypeError):
-                            pass
-                results.append(result)
-            
-            return results
-    except Exception as e:
-        logger.error(f"Failed to get history: {e}")
-        return []
-    finally:
-        conn.close()
 
-
-@app.delete("/api/history")
-async def delete_all_history():
-    """Delete all optimization results."""
-    conn = get_db_conn()
-    if not conn:
-        raise HTTPException(status_code=500, detail="Database not available")
-    
-    try:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM optimizer_results")
-            deleted_count = cur.rowcount
-        conn.commit()
-        logger.info(f"Deleted all optimization results ({deleted_count} items)")
-        return {"status": "ok", "deleted": deleted_count}
-    except Exception as e:
-        logger.error(f"Failed to delete all results: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-
-@app.delete("/api/history/{result_id}")
-async def delete_history_item(result_id: int):
-    """Delete a specific optimization result."""
-    conn = get_db_conn()
-    if not conn:
-        raise HTTPException(status_code=500, detail="Database not available")
-    
-    try:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM optimizer_results WHERE id = %s", (result_id,))
-        conn.commit()
-        logger.info(f"Deleted optimization result {result_id}")
-        return {"status": "ok", "deleted": result_id}
-    except Exception as e:
-        logger.error(f"Failed to delete result: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
+# NOTE: /api/history endpoints moved to routers/history.py
 
 
 # Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
+

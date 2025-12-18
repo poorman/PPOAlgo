@@ -29,8 +29,8 @@ COPY static /app/static/
 # Create results directory
 RUN mkdir -p /app/results
 
-# Create startup script that warms up GPU before starting server
-RUN echo '#!/bin/bash\necho "Running GPU warmup..."\npython3 /app/gpu_warmup.py\necho "Starting server..."\nexec uvicorn server:app --host 0.0.0.0 --port 8000' > /app/start.sh && chmod +x /app/start.sh
+# Create startup script that warms up GPU before starting server (4 workers for concurrency)
+RUN echo '#!/bin/bash\necho "Running GPU warmup..."\npython3 /app/gpu_warmup.py\necho "Starting server with 4 workers..."\nexec uvicorn server:app --host 0.0.0.0 --port 8000 --workers 4' > /app/start.sh && chmod +x /app/start.sh
 
 EXPOSE 8000
 

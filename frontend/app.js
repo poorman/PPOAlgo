@@ -45,6 +45,10 @@ const state = {
   logs: [],
   showLogs: true,
   showDesc: true,
+  tradeSort: {
+    key: "timestamp",
+    direction: "asc",
+  },
 };
 
 const logEl = document.getElementById("log");
@@ -120,8 +124,8 @@ async function sendEvent(event_type, payload) {
   }
 }
 
-async function fetchPrices(symbol, start, end) {
-  const params = new URLSearchParams({ symbol, start, end, timeframe: "1Day" });
+async function fetchPrices(symbol, start, end, timeframe = "1Day") {
+  const params = new URLSearchParams({ symbol, start, end, timeframe });
   const resp = await fetch(`${API_BASE}/api/prices?${params.toString()}`);
   if (!resp.ok) {
     throw new Error(`Price fetch failed (${resp.status})`);
@@ -490,7 +494,43 @@ function updateMetrics(metrics) {
 
 function renderTrades() {
   tradeBody.innerHTML = "";
-  state.trades.slice(-80).forEach((t) => {
+  const trades = [...state.trades];
+
+  // Apply sorting if configured
+  if (state.tradeSort && state.tradeSort.key) {
+    const { key, direction } = state.tradeSort;
+    const dir = direction === "desc" ? -1 : 1;
+
+    const toNumber = (v) => {
+      if (v === null || v === undefined || Number.isNaN(v)) return 0;
+      const n = Number(v);
+      return Number.isNaN(n) ? 0 : n;
+    };
+
+    trades.sort((a, b) => {
+      let va = a[key];
+      let vb = b[key];
+
+      // Special handling for timestamp
+      if (key === "timestamp") {
+        const ta = new Date(va).getTime() || 0;
+        const tb = new Date(vb).getTime() || 0;
+        return (ta - tb) * dir;
+      }
+
+      // Strings sort lexicographically
+      if (typeof va === "string" || typeof vb === "string") {
+        va = va ?? "";
+        vb = vb ?? "";
+        return va.toString().localeCompare(vb.toString()) * dir;
+      }
+
+      // Numbers fallback
+      return (toNumber(va) - toNumber(vb)) * dir;
+    });
+  }
+
+  trades.slice(-80).forEach((t) => {
     const isSell = t.action === "sell";
     const madeProfit = t.realized > 0 || t.reward > 0;
     const madeLoss = t.realized < 0 || t.reward < 0;
@@ -502,6 +542,8 @@ function renderTrades() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${t.timestamp}</td>
+      <td>${t.open !== undefined ? t.open.toFixed(2) : ""}</td>
+      <td>${t.price9am !== undefined ? t.price9am.toFixed(2) : ""}</td>
       <td>${t.price.toFixed(2)}</td>
       <td>${(t.pctChange ?? 0).toFixed(2)}%</td>
       <td>${t.notional !== undefined ? t.notional.toFixed(2) : ""}</td>
@@ -792,6 +834,87 @@ function buildSeriesFromBars(bars, withSignals) {
   state.series = { price, portfolio, positions, drawdown, actions, times, bars };
 }
 
+// Aggregate intraday minute bars into per-day bars with:
+// - previous day's close
+// - true 9:00 AM Central (10:00 AM Eastern) price for entry decisions
+function aggregateMinutesToMomentumBars(minuteBars, buyTimeCt = "09:00") {
+  if (!minuteBars || !minuteBars.length) return [];
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const dayMap = new Map();
+
+  minuteBars.forEach((bar) => {
+    const tUtc = new Date(bar.t);
+    if (Number.isNaN(tUtc.getTime())) return;
+
+    // Convert to America/Chicago for accurate 9AM CT handling (DST-aware).
+    const ctString = tUtc.toLocaleString("en-US", { timeZone: "America/Chicago" });
+    const ct = new Date(ctString);
+    if (Number.isNaN(ct.getTime())) return;
+
+    const dayKey = `${ct.getFullYear()}-${pad(ct.getMonth() + 1)}-${pad(ct.getDate())}`;
+    const hh = pad(ct.getHours());
+    const mm = pad(ct.getMinutes());
+    const hhmm = `${hh}:${mm}`;
+
+    let rec = dayMap.get(dayKey);
+    if (!rec) {
+      const basePrice = bar.o ?? bar.c;
+      rec = {
+        dayKey,
+        t: bar.t, // first timestamp of the day (UTC)
+        o: basePrice,
+        h: bar.h ?? bar.c,
+        l: bar.l ?? bar.c,
+        c: bar.c,
+        v: bar.v ?? 0,
+        price_9am: null,
+        t_9am: null,
+      };
+      dayMap.set(dayKey, rec);
+    } else {
+      const high = bar.h ?? bar.c;
+      const low = bar.l ?? bar.c;
+      rec.h = Math.max(rec.h, high);
+      rec.l = Math.min(rec.l, low);
+      rec.c = bar.c;
+      rec.v += bar.v ?? 0;
+      rec.t = rec.t || bar.t;
+    }
+
+    // Capture exact 9:00 AM Central bar if present
+    if (hhmm === buyTimeCt && rec.price_9am == null) {
+      rec.price_9am = bar.c;
+      rec.t_9am = bar.t;
+    }
+  });
+
+  // Sort days chronologically and compute previous close
+  const days = Array.from(dayMap.values()).sort((a, b) =>
+    a.dayKey.localeCompare(b.dayKey)
+  );
+
+  let prevClose = null;
+  const result = [];
+
+  for (const day of days) {
+    const bar = {
+      t: day.t_9am || day.t,
+      o: day.o,
+      h: day.h,
+      l: day.l,
+      c: day.c,
+      v: day.v,
+      prevClose: prevClose != null ? prevClose : day.o,
+      price_9am: day.price_9am, // may be null if no bar exactly at 9:00
+    };
+    result.push(bar);
+    prevClose = day.c;
+  }
+
+  return result;
+}
+
 function buildMomentumSeries(bars) {
   const price = bars.map((b) => b.c);
   const times = bars.map((b) => b.t);
@@ -823,19 +946,31 @@ function buildMomentumSeries(bars) {
     const high = bar.h ?? bar.c;
     const close = bar.c;
 
-    // Get previous day's close for momentum calculation
-    const prevClose = i > 0 ? bars[i - 1].c : open;
+    // Previous day's close for momentum calculation, allow pre-computed prevClose
+    const prevClose =
+      typeof bar.prevClose === "number" && bar.prevClose > 0
+        ? bar.prevClose
+        : i > 0
+          ? bars[i - 1].c
+          : open;
 
-    // Calculate the percentage change from previous close to today's high
-    const pctChangeFromPrevClose = (high - prevClose) / prevClose;
+    // Reference price at configured buy time (e.g., 09:00 CT).
+    // If we have an explicit 9AM price from intraday aggregation, use it.
+    const buyRefPrice =
+      typeof bar.price_9am === "number" && bar.price_9am > 0
+        ? bar.price_9am
+        : close;
+
+    // Calculate percentage change from previous close to the price at buy time.
+    const pctChangeFromPrevClose =
+      prevClose > 0 ? (buyRefPrice - prevClose) / prevClose : 0;
 
     // Buy only if:
     // 1. Not already in position
-    // 2. Today's high reached the buy trigger % above PREVIOUS CLOSE
+    // 2. The price at configured buy time has moved at least buyTrigger% above PREVIOUS CLOSE
     if (!inPos && pctChangeFromPrevClose >= buyPct) {
-      // Entry price is at the trigger level (previous close + trigger %)
-      // Use more precision for penny stocks
-      entryPrice = prevClose * (1 + buyPct);
+      // Entry at the price corresponding to configured buy time (e.g., true 9AM from intraday aggregation)
+      entryPrice = buyRefPrice;
 
       // Determine invest amount based on compound setting:
       // - Compound ON: use compoundedAmount (starts with buyAmount, grows with profits)
@@ -863,13 +998,20 @@ function buildMomentumSeries(bars) {
       actions.push({ index: i, type: "buy" });
       trades.push({
         timestamp: formatTs(buyTs),
+        open: +open.toFixed(4),
+        price9am: +buyRefPrice.toFixed(4),
         price: +entryPrice.toFixed(4), // More precision for display
-        pctChange: +(buyPct * 100).toFixed(2), // Show % above prev close at entry
+        // Actual % move from previous close at time of entry
+        pctChange:
+          prevClose && prevClose > 0
+            ? +(((entryPrice - prevClose) / prevClose) * 100).toFixed(2)
+            : 0,
         notional: +notional.toFixed(2),
         wallet: +(cash + notional).toFixed(2),
         action: actionLabel,
         position: 100,
-        reward: +(buyPct * 100).toFixed(2), // Trade P/L: 0 at entry (trigger %)
+        // Trade P/L % at entry should be 0 – we only realize P/L on sell
+        reward: 0,
         unreal: 0,
         realized: 0,
       });
@@ -907,11 +1049,19 @@ function buildMomentumSeries(bars) {
 
       const sellTs = combineDateWithTimeCt(bar.t, sellTime);
       // % change from PREVIOUS CLOSE (same day) - consistent with buy
-      const sellPctFromPrevClose = lastPrevClose ? ((exitPrice - lastPrevClose) / lastPrevClose) * 100 : 0;
+      const sellPctFromPrevClose =
+        lastPrevClose && lastPrevClose > 0
+          ? ((exitPrice - lastPrevClose) / lastPrevClose) * 100
+          : 0;
       // Trade P/L % - profit from entry to exit
-      const tradePnL = ((exitPrice - entryPrice) / entryPrice) * 100;
+      const tradePnL =
+        entryPrice && entryPrice > 0
+          ? ((exitPrice - entryPrice) / entryPrice) * 100
+          : 0;
       trades.push({
         timestamp: formatTs(sellTs),
+        open: +open.toFixed(4),
+        price9am: +entryPrice.toFixed(4),
         price: +exitPrice.toFixed(4), // More precision for display
         pctChange: +sellPctFromPrevClose.toFixed(2), // % above prev close at exit
         notional: +notional.toFixed(2),
@@ -942,29 +1092,44 @@ function buildMomentumSeries(bars) {
 async function loadHistoricalData(withSignals = false) {
   try {
     const symbol = (state.config.stock || "AAPL").toUpperCase();
-    const bars = await fetchPrices(
+    const useMomentumIntraday =
+      withSignals && state.config.model === "momentum";
+
+    // Use intraday minute bars for momentum so we can get an accurate 9AM CT price.
+    const timeframe = useMomentumIntraday ? "1Min" : "1Day";
+    const rawBars = await fetchPrices(
       symbol,
       state.config.start,
-      state.config.end
+      state.config.end,
+      timeframe
     );
-    if (withSignals && state.config.model === "momentum") {
-      const momentumSeries = buildMomentumSeries(bars);
+    let barCount = 0;
+
+    if (useMomentumIntraday) {
+      const momentumBars = aggregateMinutesToMomentumBars(
+        rawBars,
+        state.config.momentum.buyTime || "09:00"
+      );
+      const momentumSeries = buildMomentumSeries(momentumBars);
       state.series = momentumSeries;
       state.trades = momentumSeries.trades || [];
+      barCount = momentumBars.length;
     } else {
+      const bars = timeframe === "1Day" ? rawBars : resampleToDaily(rawBars);
       buildSeriesFromBars(bars, withSignals);
       if (withSignals) {
         generateTradesFromActions();
       } else {
         state.trades = [];
       }
+      barCount = bars.length;
     }
     renderCharts();
     renderTrades();
-    if (!bars.length) {
+    if (!barCount) {
       log(`No bars returned for ${symbol} in range ${state.config.start} -> ${state.config.end}`);
     } else {
-      log(`Loaded ${bars.length} bars for ${symbol}.`);
+      log(`Loaded ${barCount} bars for ${symbol}.`);
     }
   } catch (err) {
     log(`Failed to load prices: ${err}`);
@@ -1008,20 +1173,17 @@ function calculateMomentumMetrics() {
   const feesBps = state.config.fees || 5;
   const slippagePct = state.config.slippage || 0.05;
 
-  // Separate buys and sells
-  const sells = trades.filter(t => t.action.startsWith("sell"));
-  const buys = trades.filter(t => t.action.startsWith("buy"));
+  // Use SELL trades as the source of realized PnL.
+  // We recompute PnL directly from notional and Trade P/L % so the
+  // metrics stay correct even if the 'realized' field in the table
+  // is rounded or missing.
+  const sellTrades = trades.filter((t) => t.action && t.action.startsWith("sell"));
 
-  // Calculate realized PnL for each round-trip trade
-  const roundTripPnLs = [];
-  for (let i = 0; i < sells.length; i++) {
-    const sell = sells[i];
-    const buy = buys[i];
-    if (buy && sell) {
-      const pnl = sell.realized || 0;
-      roundTripPnLs.push(pnl);
-    }
-  }
+  const roundTripPnLs = sellTrades.map((sell) => {
+    const notional = sell.notional || 0;
+    const pct = sell.reward || 0; // Trade P/L % stored in 'reward'
+    return (notional * pct) / 100;
+  });
 
   // Win/Loss analysis
   const wins = roundTripPnLs.filter(p => p > 0);
@@ -1222,6 +1384,28 @@ function attachEvents() {
   document.getElementById("btn-focus-model").addEventListener("click", () => {
     document.getElementById("model-select").focus();
   });
+
+  // Trade table sorting
+  const tradeTable = document.querySelector("table.trade-table");
+  if (tradeTable) {
+    const headers = tradeTable.querySelectorAll("thead th[data-sort-key]");
+    headers.forEach((th) => {
+      th.classList.add("sortable");
+      th.addEventListener("click", () => {
+        const key = th.getAttribute("data-sort-key");
+        if (!key) return;
+        // Toggle sort direction if same column, otherwise default to descending (most recent / largest first)
+        if (state.tradeSort.key === key) {
+          state.tradeSort.direction =
+            state.tradeSort.direction === "asc" ? "desc" : "asc";
+        } else {
+          state.tradeSort.key = key;
+          state.tradeSort.direction = "desc";
+        }
+        renderTrades();
+      });
+    });
+  }
 }
 
 function init() {

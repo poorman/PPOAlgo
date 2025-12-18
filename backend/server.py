@@ -113,9 +113,11 @@ def get_prices(
     # Prefer Polygon 1-minute aggregates when key is present.
     if POLYGON_KEY:
         try:
-            days = (end_dt.date() - start_dt.date()).days + 1
-            approx_minutes = days * 390  # rough trading minutes/day
-            use_day = timeframe.lower().startswith("1day") or approx_minutes > 45000
+            # Choose aggregation granularity strictly based on requested timeframe:
+            # - "1Day" -> daily bars
+            # - everything else (e.g. "1Min") -> minute bars
+            tf_lower = timeframe.lower()
+            use_day = tf_lower.startswith("1day")
             timespan = "day" if use_day else "minute"
 
             start_date = start_dt.date().isoformat()

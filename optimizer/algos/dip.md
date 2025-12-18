@@ -152,14 +152,105 @@ $248.08 ─────────── Sell Target (+6.7%)
 
 ---
 
+## 3. ChatGPT with VWAP Algorithm
+
+**Strategy:** Buy at 10AM if price >= open + trigger% AND price > VWAP
+
+### How It Works
+
+This algorithm combines the ChatGPT momentum strategy with a **VWAP (Volume Weighted Average Price) filter**:
+
+1. **Optimization Phase:** Uses SAME logic as ChatGPT 9AM Strategy (no VWAP filter)
+2. **Backtesting Phase:** Applies VWAP as additional entry filter
+
+### Entry Conditions (Backtesting)
+
+| Condition | Description |
+|-----------|-------------|
+| Price_10AM >= Open × (1 + Buy Trigger%) | Price must be UP from open |
+| Price_10AM > VWAP | Price must be ABOVE the VWAP |
+
+Both conditions must be true to enter a trade.
+
+### Parameters
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| **Buy Trigger** | Minimum % increase at 10AM to trigger buy | 2.0% |
+| **Sell Trigger** | % profit target from 10AM buy price | 10.0% |
+| **Compound** | Whether to reinvest profits | Yes/No |
+
+### Example Trade
+
+```
+Day: 2025-01-15
+Open Price: $130.00
+10AM Price: $133.00 (+2.3% from open)
+VWAP: $131.50
+
+Buy Trigger: 2.0%
+Threshold = $130.00 × (1 + 0.02) = $132.60
+
+Check conditions:
+  1. 10AM Price $133.00 >= $132.60 ✓
+  2. 10AM Price $133.00 > VWAP $131.50 ✓
+
+Both true → BUY at $133.00
+
+Sell Trigger: 10%
+Sell Target = $133.00 × (1 + 0.10) = $146.30
+
+If price reaches $146.30 → SELL at $146.30 (+10% profit) ✓
+If not, sell at close price.
+```
+
+### Visual Representation
+
+```
+Price
+  ↑
+            10AM price above threshold AND VWAP
+$133.00 ─────────── 10AM Price → BUY HERE
+  │      ↑
+$132.60 ─────────── Buy Threshold (+2%)
+  │     ╱
+$131.50 ─────────── VWAP (must be below 10AM price)
+  │    ╱
+$130.00 ─────────── Market Open
+  │
+  │        Later in day:
+  │             ╱
+$146.30 ─────────── Sell Target (+10%)
+  │           │
+  │           │ SELL HERE ✓
+```
+
+### Why Use VWAP Filter?
+
+| Benefit | Description |
+|---------|-------------|
+| **Quality Filter** | VWAP represents fair value; trading above = strength |
+| **Reduces False Signals** | Filters out weak momentum moves |
+| **Fewer Trades** | More selective entries = higher quality |
+| **Better Win Rate** | Potential for improved accuracy |
+
+### When to Use
+
+- **Best for:** Stocks with institutional buying (VWAP respect)
+- **Works well when:** Strong momentum with volume confirmation
+- **Trade-off:** Fewer trades but potentially higher quality
+
+---
+
 ## Key Differences
 
-| Aspect | Default (Dip) | ChatGPT (Momentum) |
-|--------|---------------|-------------------|
-| **Buy condition** | Price DROPS by X% | Price RISES by X% at 9AM |
-| **Strategy type** | Mean reversion | Momentum/Trend following |
-| **When to buy** | Intraday dip | 9AM Eastern Time |
-| **Best market** | Choppy/Range-bound | Trending/Breakout |
+| Aspect | Default (Dip) | ChatGPT (Momentum) | ChatGPT + VWAP |
+|--------|---------------|-------------------|----------------|
+| **Buy condition** | Price DROPS by X% | Price RISES by X% at 9AM | Price RISES by X% AND > VWAP |
+| **Strategy type** | Mean reversion | Momentum | Momentum + Volume filter |
+| **When to buy** | Intraday dip | 9AM Eastern Time | 10AM Eastern Time |
+| **Best market** | Choppy/Range-bound | Trending/Breakout | Strong trend with volume |
+| **Filter** | None | None | VWAP |
 
 ---
 

@@ -5,6 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Stock Parameter Optimizer</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
     <style>
         :root {
             --bg-dark: #0f1419;
@@ -331,11 +332,11 @@
         }
 
         .log-tab:first-child {
-            border-radius: 6px 0 0 6px;
+            border-radius: 6px 6px 0px 6px;
         }
 
         .log-tab:last-child {
-            border-radius: 0 6px 6px 0;
+            border-radius: 6px 6px 6px 6px;
             border-left: none;
         }
 
@@ -348,9 +349,9 @@
         .analysis-container {
             background: var(--bg-input);
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: 0px 8px 8px 8px;
             padding: 1rem;
-            max-height: 500px;
+            max-height: 1000px;
             overflow-y: auto;
             font-family: monospace;
             font-size: 0.8rem;
@@ -469,8 +470,15 @@
         }
 
         @keyframes db-pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.7;
+            }
         }
 
         .symbol-input-wrapper {
@@ -497,7 +505,7 @@
             color: var(--text-secondary);
             z-index: 100;
             white-space: nowrap;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
 
         .cache-tooltip::before {
@@ -811,7 +819,7 @@
 
 <body>
     <header>
-        <h1>🚀 Stock Parameter Optimizer</h1>
+        <img src="/static/logo.png" alt="Stock Parameter Optimizer" style="height: 60px; margin-bottom: 0.5rem;">
         <p>Bayesian optimization to find optimal buy/sell triggers for each stock</p>
     </header>
 
@@ -819,6 +827,9 @@
     <div class="global-progress" id="global-progress">
         <div class="global-progress-header">
             <span class="global-progress-title">⏱️ Optimization in Progress</span>
+            <button id="stop-optimization-btn" onclick="stopOptimization()"
+                style="background: var(--danger); color: white; border: none; padding: 0.3rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 600; margin-left: 1rem;">⏹
+                STOP</button>
             <div class="global-progress-stats">
                 <div class="global-progress-stat">
                     <span class="global-progress-stat-label">Elapsed:</span>
@@ -831,6 +842,15 @@
                 <div class="global-progress-stat">
                     <span class="global-progress-stat-label">Speed:</span>
                     <span class="global-progress-stat-value" id="trials-speed">-- trials/s</span>
+                </div>
+                <div class="global-progress-stat">
+                    <span class="global-progress-stat-label">Iter:</span>
+                    <span class="global-progress-stat-value" id="iter-count" style="color: var(--accent);">0/0</span>
+                </div>
+                <div class="global-progress-stat" style="min-width: 120px;">
+                    <span class="global-progress-stat-label">Phase:</span>
+                    <span class="global-progress-stat-value" id="phase-status"
+                        style="color: #fbbf24;">Starting...</span>
                 </div>
             </div>
         </div>
@@ -851,8 +871,10 @@
             <div class="form-group">
                 <label>Algorithm</label>
                 <select id="algo-select" onchange="onAlgoChange()">
-                    <option value="default">Default - Grid Search</option>
-                    <option value="chatgpt">ChatGPT - 9AM Strategy</option>
+                    <option value="default">Dipper - Buy the Dip</option>
+                    <option value="chatgpt">Momentum 10am</option>
+                    <option value="chatgpt_stoploss">Momentum Stop Loss</option>
+                    <option value="chatgpt_vwap">Momentum 10am + VWAP</option>
                 </select>
                 <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 0.25rem;">
                     <span id="algo-description">Buy on dip, sell on profit target</span>
@@ -860,11 +882,20 @@
             </div>
 
             <div class="form-group">
-                <label>Stock Symbols (comma-separated) <span id="db-cache-indicator" class="db-cache-icon no-cache" title="Data cached in DB">💾 DB</span></label>
+                <label>Stock Symbols (comma-separated) <span id="db-cache-indicator" class="db-cache-icon no-cache"
+                        title="Data cached in DB">💾 DB</span></label>
                 <div class="symbol-input-wrapper">
-                    <input type="text" id="symbols" value="TSLA" placeholder="TSLA, NVDA, AAPL" oninput="checkSymbolCache()" />
+                    <input type="text" id="symbols" value="TSLA" placeholder="TSLA, NVDA, AAPL"
+                        oninput="checkSymbolCache()" />
                 </div>
-                <div id="cache-info" style="display: none; margin-top: 6px; padding: 6px 8px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; font-size: 0.7rem; color: var(--success); border-left: 3px solid #10b981;"></div>
+                <div id="cache-info"
+                    style="display: none; margin-top: 6px; padding: 6px 8px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; font-size: 0.7rem; color: var(--success); border-left: 3px solid #10b981;">
+                </div>
+                <button id="clear-cache-btn" type="button" onclick="clearPriceCache()"
+                    style="margin-top: 6px; padding: 6px 12px; background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; font-size: 0.7rem; cursor: pointer; display: flex; align-items: center; gap: 4px;"
+                    title="Clear cached data to fetch fresh VWAP values">
+                    🗑️ Clear Cache (Refresh VWAP)
+                </button>
                 <div
                     style="margin-top: 8px; padding: 10px; background: rgba(29, 155, 240, 0.1); border-radius: 8px; border-left: 3px solid var(--accent);">
                     <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px;">Quick Keywords:
@@ -885,6 +916,21 @@
             <div class="form-group">
                 <label>End Date</label>
                 <input type="date" id="end-date" value="2024-12-01" />
+            </div>
+
+            <div style="border-top: 1px solid var(--border); margin: 0.75rem 0; padding-top: 0.75rem;">
+                <div style="color: var(--text-secondary); font-size: 0.75rem; margin-bottom: 0.5rem;">📊 Backtest Date
+                    Range (optional)</div>
+                <div class="form-group" style="margin-bottom: 0.5rem;">
+                    <label style="font-size: 0.8rem;">Backtest Start</label>
+                    <input type="date" id="backtest-start-date" value="" placeholder="Same as optimization" />
+                </div>
+                <div class="form-group">
+                    <label style="font-size: 0.8rem;">Backtest End</label>
+                    <input type="date" id="backtest-end-date" value="" placeholder="Same as optimization" />
+                </div>
+                <small style="color: var(--text-secondary); font-size: 0.65rem;">Leave blank to use same range as
+                    optimization</small>
             </div>
 
             <div class="form-group">
@@ -946,6 +992,129 @@
         </aside>
 
         <section>
+            <!-- Top tabs for Results / API Tester -->
+            <div class="log-tabs" style="margin-bottom: 1rem;">
+                <button class="log-tab active" id="tab-results" onclick="switchTopTab('results')">Results</button>
+                <button class="log-tab" id="tab-api-tester" onclick="switchTopTab('api-tester')">API Tester</button>
+            </div>
+
+            <!-- API Tester Panel -->
+            <div id="api-tester-panel"
+                style="display: none; background: var(--card-bg); border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem;">
+                <h3 style="color: var(--accent); margin-bottom: 1rem;">🔬 API Price Comparison Tool</h3>
+                <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">Compare price data
+                    from Alpaca and Polygon APIs for a specific stock and date.</p>
+
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1rem;">
+                    <div>
+                        <label style="color: var(--text-secondary); font-size: 0.8rem;">Stock Ticker</label>
+                        <input type="text" id="api-test-ticker" placeholder="TSLA"
+                            onkeypress="if(event.key==='Enter') runApiTest()"
+                            style="width: 100%; padding: 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text);" />
+                    </div>
+                    <div>
+                        <label style="color: var(--text-secondary); font-size: 0.8rem;">Date</label>
+                        <input type="date" id="api-test-date"
+                            style="width: 100%; padding: 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text);" />
+                    </div>
+                    <div>
+                        <label style="color: var(--text-secondary); font-size: 0.8rem;">Time (HH:MM)</label>
+                        <input type="text" id="api-test-time" placeholder="10:00" value="10:00"
+                            style="width: 100%; padding: 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text);" />
+                    </div>
+                </div>
+
+                <button onclick="runApiTest()"
+                    style="background: var(--accent); color: white; border: none; padding: 0.75rem 2rem; border-radius: 8px; cursor: pointer; font-weight: 600; margin-bottom: 1.5rem;">
+                    🚀 Fetch & Compare
+                </button>
+
+                <div id="api-test-results" style="display: none;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                        <!-- Alpaca Results -->
+                        <div
+                            style="background: rgba(0,200,100,0.1); border: 1px solid var(--success); border-radius: 8px; padding: 1rem;">
+                            <h4 style="color: var(--success); margin-bottom: 0.75rem;">📈 Alpaca Data</h4>
+                            <div id="alpaca-results" style="font-size: 0.85rem;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem;">
+                                    <span style="color: var(--text-secondary);">Open (9:30 AM):</span>
+                                    <span id="alpaca-open" style="font-weight: bold;">--</span>
+
+                                    <span style="color: var(--text-secondary);">User Time Price:</span>
+                                    <span id="alpaca-user-price" style="font-weight: bold; color: #22c55e;">--</span>
+
+                                    <span style="color: var(--text-secondary);">Close (4:00 PM):</span>
+                                    <span id="alpaca-close" style="font-weight: bold;">--</span>
+
+                                    <span style="color: var(--text-secondary);">Volume (Daily):</span>
+                                    <span id="alpaca-volume-daily">--</span>
+
+                                    <span style="color: var(--text-secondary);">Volume (to time):</span>
+                                    <span id="alpaca-volume-time">--</span>
+
+                                    <span style="color: #a78bfa; font-weight: bold;">VWAP (9:30→time):</span>
+                                    <span id="alpaca-vwap-time" style="color: #a78bfa; font-weight: bold;">--</span>
+
+                                    <span style="color: var(--text-secondary);">VWAP (Daily):</span>
+                                    <span id="alpaca-vwap-daily">--</span>
+
+                                    <span style="color: var(--text-secondary);">Bars Used:</span>
+                                    <span id="alpaca-bars-count">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Polygon Results (real Polygon.io API data) -->
+                        <div
+                            style="background: rgba(167,139,250,0.1); border: 1px solid #a78bfa; border-radius: 8px; padding: 1rem;">
+                            <h4 style="color: #a78bfa; margin-bottom: 0.75rem;">🔷 Polygon Data</h4>
+                            <div id="polygon-results" style="font-size: 0.85rem;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem;">
+                                    <span style="color: var(--text-secondary);">Open (9:30 AM):</span>
+                                    <span id="polygon-open" style="font-weight: bold;">--</span>
+
+                                    <span style="color: var(--text-secondary);">User Time Price:</span>
+                                    <span id="polygon-user-price" style="font-weight: bold; color: #a78bfa;">--</span>
+
+                                    <span style="color: var(--text-secondary);">Close (4:00 PM):</span>
+                                    <span id="polygon-close" style="font-weight: bold;">--</span>
+
+                                    <span style="color: var(--text-secondary);">Volume (Daily):</span>
+                                    <span id="polygon-volume-daily">--</span>
+
+                                    <span style="color: var(--text-secondary);">Volume (to time):</span>
+                                    <span id="polygon-volume-time">--</span>
+
+                                    <span style="color: #a78bfa; font-weight: bold;">VWAP (9:30→time):</span>
+                                    <span id="polygon-vwap-time" style="color: #a78bfa; font-weight: bold;">--</span>
+
+                                    <span style="color: var(--text-secondary);">VWAP (Daily):</span>
+                                    <span id="polygon-vwap-daily">--</span>
+
+                                    <span style="color: var(--text-secondary);">Bars Used:</span>
+                                    <span id="polygon-bars-count">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Comparison Summary -->
+                    <div id="api-comparison"
+                        style="margin-top: 1rem; padding: 1rem; background: var(--bg); border-radius: 8px;">
+                        <h4 style="color: var(--accent); margin-bottom: 0.5rem;">📊 Comparison</h4>
+                        <div id="comparison-details" style="font-size: 0.85rem; color: var(--text-secondary);"></div>
+                    </div>
+                </div>
+
+                <div id="api-test-loading" style="display: none; text-align: center; padding: 2rem;">
+                    <div style="color: var(--accent);">⏳ Fetching data from APIs...</div>
+                </div>
+
+                <div id="api-test-error"
+                    style="display: none; padding: 1rem; background: rgba(239,68,68,0.1); border: 1px solid var(--danger); border-radius: 8px; color: var(--danger);">
+                </div>
+            </div>
+
             <div class="results-container" id="results">
                 <div class="empty-state">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -982,11 +1151,14 @@
             <button class="refresh-btn" onclick="loadHistory()">🔄 Refresh History</button>
             <input type="text" id="history-search" class="search-input" placeholder="🔍 Search symbol..."
                 oninput="filterHistory()">
-            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; margin-bottom: 0.75rem;">
                 <button class="sort-btn active" id="sort-date" onclick="sortHistory('date')">📅 Date</button>
                 <button class="sort-btn" id="sort-sharpe" onclick="sortHistory('sharpe')">📈 Sharpe</button>
                 <button class="sort-btn" id="sort-max" onclick="sortHistory('max')">🚀 Max</button>
                 <button class="sort-btn" id="sort-win" onclick="sortHistory('win')">🎯 Win</button>
+                <button class="sort-btn" id="sort-fin" onclick="sortHistory('fin')">💰 Fin</button>
+                <button class="sort-btn" id="sort-amnt" onclick="sortHistory('amnt')">📊 Amnt</button>
+                <button class="sort-btn" id="sort-win2" onclick="sortHistory('win2')">🏆 Win2</button>
             </div>
             <div class="filter-row">
                 <label class="filter-checkbox">
@@ -1015,11 +1187,14 @@
         let searchFilter = ''; // Search filter text
         let showGpuRuns = true; // GPU filter
         let showCpuRuns = true; // CPU filter
+        let historyDisplayLimit = 30; // Pagination: items per page
 
         // Algorithm descriptions
         const algoDescriptions = {
             'default': 'Buy on dip, sell on profit target',
-            'chatgpt': 'Buy at 9AM if price >= open, sell before close'
+            'chatgpt': 'Buy at 10AM if price >= open+X%, sell at +Y% (optimized)',
+            'chatgpt_stoploss': 'Momentum with Take Profit, Stop Loss, Trailing Stop + Trend Filter',
+            'chatgpt_vwap': 'Entry @ 10AM if price < VWAP (mean reversion) + TP/SL + Protect Winner'
         };
 
         // Handle algo selection change
@@ -1055,11 +1230,45 @@
         let cachedSymbols = {};
 
         // Check if symbol data is cached in database
+        async function clearPriceCache() {
+            const input = document.getElementById('symbols').value.trim().toUpperCase();
+            const symbols = input.split(',').map(s => s.trim()).filter(s => s && !['ALL', 'CAP', 'FULL'].includes(s));
+
+            if (symbols.length === 0) {
+                log('No symbols to clear cache for', 'warning');
+                return;
+            }
+
+            const btn = document.getElementById('clear-cache-btn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Clearing...';
+
+            try {
+                let clearedCount = 0;
+                for (const symbol of symbols) {
+                    // Clear both 1Day and 1Min cache
+                    const res1 = await fetch(`/api/price-cache/${symbol}?timeframe=1Min`, { method: 'DELETE' });
+                    const res2 = await fetch(`/api/price-cache/${symbol}?timeframe=1Day`, { method: 'DELETE' });
+                    if (res1.ok || res2.ok) clearedCount++;
+                }
+
+                log(`✅ Cache cleared for ${clearedCount} symbol(s). Run optimization to fetch fresh VWAP data.`, 'success');
+
+                // Refresh cache check
+                checkSymbolCache();
+            } catch (error) {
+                log(`❌ Failed to clear cache: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🗑️ Clear Cache (Refresh VWAP)';
+            }
+        }
+
         async function checkSymbolCache() {
             const input = document.getElementById('symbols').value.trim().toUpperCase();
             const indicator = document.getElementById('db-cache-indicator');
             const cacheInfo = document.getElementById('cache-info');
-            
+
             // Skip keywords
             if (['ALL', 'CAP', 'FULL'].includes(input)) {
                 indicator.className = 'db-cache-icon no-cache';
@@ -1091,7 +1300,7 @@
                         // Show cached indicator
                         indicator.className = 'db-cache-icon';
                         indicator.innerHTML = '💾 DB';
-                        
+
                         // Build cache info text
                         const dailyData = data.data.find(d => d.timeframe === '1Day' || d.timeframe === '1Day (legacy)');
                         if (dailyData) {
@@ -1102,7 +1311,7 @@
                             indicator.title = `${symbol} has cached data`;
                             cacheInfo.style.display = 'none';
                         }
-                        
+
                         // Store for later use
                         cachedSymbols[symbol] = data.data;
                     } else {
@@ -1122,7 +1331,118 @@
         // Check cache on page load
         document.addEventListener('DOMContentLoaded', () => {
             setTimeout(checkSymbolCache, 500);
+
+            // Set backtest dates: Start = End Date + 1 day, End = Today
+            const endDateVal = document.getElementById('end-date').value;
+            if (endDateVal) {
+                const endDate = new Date(endDateVal);
+                endDate.setDate(endDate.getDate() + 1);
+                const btStart = endDate.toISOString().split('T')[0];
+                document.getElementById('backtest-start-date').value = btStart;
+            }
+            // Get today in Chicago/CDT timezone
+            const chicagoDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+            document.getElementById('backtest-end-date').value = chicagoDate;
+
+            // Set API Tester date to today (Chicago time)
+            document.getElementById('api-test-date').value = chicagoDate;
         });
+
+        // Switch between Results and API Tester tabs
+        function switchTopTab(tab) {
+            const resultsTab = document.getElementById('tab-results');
+            const apiTesterTab = document.getElementById('tab-api-tester');
+            const resultsContainer = document.getElementById('results');
+            const apiTesterPanel = document.getElementById('api-tester-panel');
+            // Get log tabs by finding the second .log-tabs element (first is top tabs)
+            const allLogTabs = document.querySelectorAll('.log-tabs');
+            const bottomLogTabs = allLogTabs.length > 1 ? allLogTabs[1] : null;
+            const logContainer = document.getElementById('log');
+            const analysisContainer = document.getElementById('analysis');
+
+            if (tab === 'results') {
+                resultsTab.classList.add('active');
+                apiTesterTab.classList.remove('active');
+                resultsContainer.style.display = 'flex';
+                apiTesterPanel.style.display = 'none';
+            } else {
+                resultsTab.classList.remove('active');
+                apiTesterTab.classList.add('active');
+                resultsContainer.style.display = 'none';
+                apiTesterPanel.style.display = 'block';
+                // Keep bottom section (Status/Analysis + trade log) visible
+            }
+        }
+
+        // Run API comparison test
+        async function runApiTest() {
+            const ticker = document.getElementById('api-test-ticker').value.toUpperCase();
+            const date = document.getElementById('api-test-date').value;
+            const time = document.getElementById('api-test-time').value;
+
+            if (!ticker || !date) {
+                document.getElementById('api-test-error').style.display = 'block';
+                document.getElementById('api-test-error').textContent = 'Please enter a stock ticker and date.';
+                return;
+            }
+
+            // Show loading
+            document.getElementById('api-test-loading').style.display = 'block';
+            document.getElementById('api-test-results').style.display = 'none';
+            document.getElementById('api-test-error').style.display = 'none';
+
+            try {
+                // Call backend API to fetch from both sources
+                const response = await fetch(`/api/price-compare?symbol=${ticker}&date=${date}&time=${time}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Populate Alpaca results
+                if (data.alpaca) {
+                    document.getElementById('alpaca-open').textContent = data.alpaca.open_price ? `$${data.alpaca.open_price.toFixed(2)}` : 'N/A';
+                    document.getElementById('alpaca-user-price').textContent = data.alpaca.user_price ? `$${data.alpaca.user_price.toFixed(2)} @ ${data.alpaca.user_time}` : 'N/A';
+                    document.getElementById('alpaca-close').textContent = data.alpaca.close_price ? `$${data.alpaca.close_price.toFixed(2)}` : 'N/A';
+                    document.getElementById('alpaca-volume-daily').textContent = data.alpaca.volume_daily ? data.alpaca.volume_daily.toLocaleString() : 'N/A';
+                    document.getElementById('alpaca-volume-time').textContent = data.alpaca.volume_to_time ? data.alpaca.volume_to_time.toLocaleString() : 'N/A';
+                    document.getElementById('alpaca-vwap-time').textContent = data.alpaca.vwap_to_time ? `$${data.alpaca.vwap_to_time.toFixed(4)}` : 'N/A';
+                    document.getElementById('alpaca-vwap-daily').textContent = data.alpaca.vwap_daily ? `$${data.alpaca.vwap_daily.toFixed(4)}` : 'N/A';
+                    document.getElementById('alpaca-bars-count').textContent = data.alpaca.bars_used_for_vwap || 'N/A';
+                }
+
+                // Populate Polygon/Summary results (same data)
+                if (data.polygon) {
+                    document.getElementById('polygon-open').textContent = data.polygon.open_price ? `$${data.polygon.open_price.toFixed(2)}` : 'N/A';
+                    document.getElementById('polygon-user-price').textContent = data.polygon.user_price ? `$${data.polygon.user_price.toFixed(2)} @ ${data.polygon.user_time}` : 'N/A';
+                    document.getElementById('polygon-close').textContent = data.polygon.close_price ? `$${data.polygon.close_price.toFixed(2)}` : 'N/A';
+                    document.getElementById('polygon-volume-daily').textContent = data.polygon.volume_daily ? data.polygon.volume_daily.toLocaleString() : 'N/A';
+                    document.getElementById('polygon-volume-time').textContent = data.polygon.volume_to_time ? data.polygon.volume_to_time.toLocaleString() : 'N/A';
+                    document.getElementById('polygon-vwap-time').textContent = data.polygon.vwap_to_time ? `$${data.polygon.vwap_to_time.toFixed(4)}` : 'N/A';
+                    document.getElementById('polygon-vwap-daily').textContent = data.polygon.vwap_daily ? `$${data.polygon.vwap_daily.toFixed(4)}` : 'N/A';
+                    document.getElementById('polygon-bars-count').textContent = data.polygon.bars_used_for_vwap || 'N/A';
+                }
+
+                // No comparison needed - same data source
+                const comparisonHtml = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                        <span>User Time:</span><span style="color: var(--success); font-weight: bold;">${time}</span>
+                        <span>Price Change (Open→Time):</span><span style="color: ${data.alpaca && data.alpaca.user_price > data.alpaca.open_price ? 'var(--success)' : 'var(--danger)'};">${data.alpaca && data.alpaca.open_price ? ((data.alpaca.user_price - data.alpaca.open_price) / data.alpaca.open_price * 100).toFixed(2) + '%' : 'N/A'}</span>
+                    </div>
+                `;
+                document.getElementById('comparison-details').innerHTML = comparisonHtml;
+
+                // Show results
+                document.getElementById('api-test-loading').style.display = 'none';
+                document.getElementById('api-test-results').style.display = 'block';
+
+            } catch (error) {
+                document.getElementById('api-test-loading').style.display = 'none';
+                document.getElementById('api-test-error').style.display = 'block';
+                document.getElementById('api-test-error').textContent = `Error: ${error.message}`;
+            }
+        }
 
         // Switch between Status and Analysis tabs
         function switchLogTab(tab) {
@@ -1162,7 +1482,7 @@
             const m = result.metrics || {};
             const p = result.best_params || {};
             const tradeLog = result.trade_log || [];
-            
+
             // Store for sorting
             currentTradeLog = tradeLog.map((t, i) => ({ ...t, day: i + 1 }));
             currentTradeLogMeta = {
@@ -1170,7 +1490,8 @@
                 params: p,
                 metrics: m,
                 start_date: result.start_date,
-                end_date: result.end_date
+                end_date: result.end_date,
+                algo: result.algo || 'default'
             };
             tradeLogSortColumn = 'day';
             tradeLogSortAsc = true;
@@ -1193,29 +1514,36 @@
                 const sortIcon = (col) => tradeLogSortColumn === col ? (tradeLogSortAsc ? ' ▲' : ' ▼') : '';
                 const thStyle = 'padding: 6px 8px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap;';
                 const tdStyle = 'padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.05);';
-                
-                // Check if this is ChatGPT algo (has price_9am data)
-                const isChatGPT = tradeLog.some(t => t.algo === 'chatgpt' || t.price_9am != null);
-                
+
+                // Check if this is ChatGPT algo (has price_10am data)
+                const isChatGPT = tradeLog.some(t => t.algo === 'chatgpt' || t.algo === 'chatgpt_stoploss' || t.algo === 'chatgpt_vwap' || t.price_10am != null);
+                const isStopLoss = tradeLog.some(t => t.algo === 'chatgpt_stoploss' || t.algo === 'chatgpt_vwap' || t.exit_reason != null);
+                const isVWAP = tradeLog.some(t => t.algo === 'chatgpt_vwap' || t.vwap != null);
+                const isDipper = tradeLog.some(t => t.algo === 'default' || t.prev_close != null);
+
                 tradeLogHtml = `
                     <div style="margin-top: 0.75rem;">
                         <div style="color: var(--accent); font-weight: 600; font-size: 0.75rem; margin-bottom: 0.3rem;">
                             📊 Trade Log with Buy/Sell Guidance <span style="color: var(--text-secondary); font-weight: 400; font-size: 0.65rem;">(${tradeLog.length} days) ${dateRange}</span>
                         </div>
-                        <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px;">
+                        <div style="max-height: 800px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px;">
                             <table id="trade-log-table" style="width: 100%; font-size: 0.65rem; border-collapse: collapse;">
                                 <thead style="background: var(--bg-card); position: sticky; top: 0; z-index: 1;">
                                     <tr>
                                         <th style="${thStyle} text-align: left;" onclick="sortTradeLog('date')">Date${sortIcon('date')}</th>
                                         <th style="${thStyle} text-align: center;" onclick="sortTradeLog('bought')">Buy?${sortIcon('bought')}</th>
                                         <th style="${thStyle} text-align: right;" onclick="sortTradeLog('open')">Open${sortIcon('open')}</th>
-                                        ${isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('price_9am')">9AM Price${sortIcon('price_9am')}</th>` : ''}
-                                        ${isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_change_9am')">9AM Δ %${sortIcon('pct_change_9am')}</th>` : ''}
-                                        ${!isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('buy_price')">Buy @${sortIcon('buy_price')}</th>` : ''}
-                                        ${!isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_change')">% vs Open${sortIcon('pct_change')}</th>` : ''}
+                                        ${isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('price_10am')">10AM Price${sortIcon('price_10am')}</th>` : ''}
+                                        ${isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_change_10am')">10AM Δ %${sortIcon('pct_change_10am')}</th>` : ''}
+                                        ${isVWAP ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('vwap')">VWAP${sortIcon('vwap')}</th>` : ''}
+                                        ${isVWAP ? `<th style="${thStyle} text-align: left; min-width: 90px;" onclick="sortTradeLog('skip_reason')">Skipped${sortIcon('skip_reason')}</th>` : ''}
+                                        ${isDipper && !isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('prev_close')">Prev Close${sortIcon('prev_close')}</th>` : ''}
+                                        ${isDipper && !isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_change')">% Chg${sortIcon('pct_change')}</th>` : ''}
                                         <th style="${thStyle} text-align: right;" onclick="sortTradeLog('close')">Close${sortIcon('close')}</th>
-                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_to_close')">% @ Close${sortIcon('pct_to_close')}</th>
+                                        ${isStopLoss ? `<th style="${thStyle} text-align: right;">TP @</th>` : ''}
+                                        ${isStopLoss ? `<th style="${thStyle} text-align: right;">SL @</th>` : ''}
                                         <th style="${thStyle} text-align: right;" onclick="sortTradeLog('sell_price')">Sell @${sortIcon('sell_price')}</th>
+                                        ${isStopLoss ? `<th style="${thStyle} text-align: center;">Exit</th>` : ''}
                                         <th style="${thStyle} text-align: right;" onclick="sortTradeLog('profit')">Profit${sortIcon('profit')}</th>
                                         <th style="${thStyle} text-align: right;" onclick="sortTradeLog('equity')">Equity${sortIcon('equity')}</th>
                                     </tr>
@@ -1226,13 +1554,17 @@
                                             <td style="${tdStyle} color: var(--text-secondary);">${t.date ? t.date.substring(0, 10) : ''}</td>
                                             <td style="${tdStyle} text-align: center;">${t.bought ? '✅' : '❌'}</td>
                                             <td style="${tdStyle} text-align: right;">$${t.open?.toFixed(2) || 'N/A'}</td>
-                                            ${isChatGPT ? `<td style="${tdStyle} text-align: right; color: var(--accent);">${t.price_9am ? '$' + t.price_9am.toFixed(2) : '—'}</td>` : ''}
-                                            ${isChatGPT ? `<td style="${tdStyle} text-align: right; color: ${(t.pct_change_9am || 0) >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.pct_change_9am != null ? ((t.pct_change_9am >= 0 ? '+' : '') + t.pct_change_9am.toFixed(2) + '%') : '—'}</td>` : ''}
-                                            ${!isChatGPT ? `<td style="${tdStyle} text-align: right; color: var(--accent);">${t.bought ? '$' + t.buy_price?.toFixed(2) : '—'}</td>` : ''}
-                                            ${!isChatGPT ? `<td style="${tdStyle} text-align: right; color: ${t.pct_change >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.pct_change >= 0 ? '+' : ''}${t.pct_change?.toFixed(2) || 0}%</td>` : ''}
+                                            ${isChatGPT ? `<td style="${tdStyle} text-align: right; color: var(--accent);">${t.price_10am ? '$' + t.price_10am.toFixed(2) : '—'}</td>` : ''}
+                                            ${isChatGPT ? `<td style="${tdStyle} text-align: right; color: ${(t.pct_change_10am || 0) >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.pct_change_10am != null ? ((t.pct_change_10am >= 0 ? '+' : '') + t.pct_change_10am.toFixed(2) + '%') : '—'}</td>` : ''}
+                                            ${isVWAP ? `<td style="${tdStyle} text-align: right; color: #a78bfa;">${t.vwap ? '$' + t.vwap.toFixed(2) : '—'}</td>` : ''}
+                                            ${isVWAP ? `<td style="${tdStyle} text-align: left; color: ${t.skip_reason ? '#f59e0b' : 'var(--success)'}; font-size: 0.6rem;">${t.skip_reason || (t.bought ? '$ ≥ VWAP' : '—')}</td>` : ''}
+                                            ${isDipper && !isChatGPT ? `<td style="${tdStyle} text-align: right;">$${t.prev_close?.toFixed(2) || 'N/A'}</td>` : ''}
+                                            ${isDipper && !isChatGPT ? `<td style="${tdStyle} text-align: right; color: ${(t.pct_change || 0) >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.pct_change != null ? ((t.pct_change >= 0 ? '+' : '') + t.pct_change.toFixed(2) + '%') : '—'}</td>` : ''}
                                             <td style="${tdStyle} text-align: right;">$${t.close?.toFixed(2) || 'N/A'}</td>
-                                            <td style="${tdStyle} text-align: right; color: ${(() => { const buyP = t.price_9am || t.buy_price; const pct = buyP && t.close ? ((t.close - buyP) / buyP * 100) : null; return pct != null ? (pct >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--text-secondary)'; })()};">${(() => { const buyP = t.price_9am || t.buy_price; const pct = buyP && t.close ? ((t.close - buyP) / buyP * 100) : null; return pct != null ? ((pct >= 0 ? '+' : '') + pct.toFixed(2) + '%') : '—'; })()}</td>
+                                            ${isStopLoss ? `<td style="${tdStyle} text-align: right; color: var(--success); font-size: 0.6rem;">${t.bought && t.sell_price ? '$' + t.sell_price.toFixed(2) : '—'}</td>` : ''}
+                                            ${isStopLoss ? `<td style="${tdStyle} text-align: right; color: var(--danger); font-size: 0.6rem;">${t.bought && t.stop_loss ? '$' + t.stop_loss.toFixed(2) : '—'}</td>` : ''}
                                             <td style="${tdStyle} text-align: right; color: ${t.sold_at_target ? 'var(--success)' : 'var(--text-secondary)'};">${t.bought ? (t.sold_at_target ? '$' + t.sell_price?.toFixed(2) + ' ✓' : '$' + (t.actual_sell?.toFixed(2) || t.close?.toFixed(2))) : '—'}</td>
+                                            ${isStopLoss ? `<td style="${tdStyle} text-align: center; font-size: 0.6rem; font-weight: 600; color: ${t.exit_reason === 'TP' ? 'var(--success)' : t.exit_reason === 'SL' ? 'var(--danger)' : t.exit_reason === 'TRAIL' ? 'var(--accent)' : 'var(--text-secondary)'};">${t.exit_reason || '—'}</td>` : ''}
                                             <td style="${tdStyle} text-align: right; color: ${(t.profit || 0) >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.bought ? ((t.profit || 0) >= 0 ? '+' : '') + '$' + (t.profit?.toFixed(0) || 0) : '—'}</td>
                                             <td style="${tdStyle} text-align: right; font-weight: 500;">$${t.equity?.toLocaleString() || 'N/A'}</td>
                                         </tr>
@@ -1259,7 +1591,11 @@
                     <div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(29, 155, 240, 0.1); border-radius: 6px;">
                         <div style="color: var(--text-secondary); font-size: 0.65rem; margin-bottom: 0.3rem;">Strategy:</div>
                         <div style="color: var(--text); font-size: 0.65rem; line-height: 1.4;">
-                            Buy @ <b>${p.buy_trigger_pct || 'N/A'}%</b> dip → Sell @ <b>${p.sell_trigger_pct || 'N/A'}%</b> profit | 
+                            ${isVWAP
+                    ? `<b>Adaptive VWAP:</b> Buy @ 10AM if: price > VWAP ∧ slope > 0 ∧ stretch < 0.5×vol ∧ mom > 0.25×vol → TP @ <b>${p.sell_trigger_pct || 'N/A'}%</b> | SL @ Open`
+                    : isChatGPT
+                        ? `Buy @ 10AM if <b>+${p.buy_trigger_pct || 'N/A'}%</b> up from open → Sell @ <b>+${p.sell_trigger_pct || 'N/A'}%</b> from open`
+                        : `Buy @ <b>${p.buy_trigger_pct || 'N/A'}%</b> above prev close → Sell @ <b>${p.sell_trigger_pct || 'N/A'}%</b> profit`} | 
                             ${p.compound ? 'Compound' : 'Fixed'} | Win: <b>${m.win_rate ? (m.win_rate * 100).toFixed(0) + '%' : 'N/A'}</b>
                         </div>
                     </div>
@@ -1280,13 +1616,13 @@
             currentTradeLog.sort((a, b) => {
                 let valA = a[column];
                 let valB = b[column];
-                
+
                 // Handle booleans
                 if (typeof valA === 'boolean') {
                     valA = valA ? 1 : 0;
                     valB = valB ? 1 : 0;
                 }
-                
+
                 // Handle nulls
                 if (valA == null) valA = 0;
                 if (valB == null) valB = 0;
@@ -1372,6 +1708,7 @@
             document.getElementById('trials-speed').textContent = '-- trials/s';
             document.getElementById('progress-stocks').textContent = `Stock 0/${symbols.length}`;
             document.getElementById('progress-trials').textContent = `Preparing ${symbols.length * trialsPerSymbol} trials...`;
+            document.getElementById('iter-count').textContent = `0/${trialsPerSymbol}`;
         }
 
         // Hide global progress bar
@@ -1444,10 +1781,15 @@
 
         // Load history from database
         async function loadHistory() {
+            const btn = document.querySelector('.refresh-btn');
+            const originalText = btn.textContent;
+            btn.textContent = '⏳ Loading...';
+            btn.disabled = true;
+
             try {
                 // Load cached symbols list first
                 await loadCachedSymbolsList();
-                
+
                 const resp = await fetch('/api/history');
                 historyData = await resp.json();
                 // Update counter
@@ -1455,6 +1797,9 @@
                 sortAndRenderHistory();
             } catch (e) {
                 console.error('Failed to load history:', e);
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
             }
         }
 
@@ -1492,6 +1837,43 @@
                 case 'win':
                     sorted.sort((a, b) => (b.win_rate || 0) - (a.win_rate || 0));
                     break;
+                case 'fin':
+                    // Sort by final equity from trade_log
+                    sorted.sort((a, b) => {
+                        const getLastEquity = (item) => {
+                            if (item.trade_log && item.trade_log.length > 0) {
+                                const tradesWithEquity = item.trade_log.filter(t => t.equity);
+                                if (tradesWithEquity.length > 0) {
+                                    const capital = item.capital || 100000;
+                                    return tradesWithEquity[tradesWithEquity.length - 1].equity / capital;
+                                }
+                            }
+                            return 0;
+                        };
+                        return getLastEquity(b) - getLastEquity(a);
+                    });
+                    break;
+                case 'amnt':
+                    // Sort by number of winning trades (parse from trade_log if available)
+                    sorted.sort((a, b) => {
+                        const aWins = a.trade_log ? a.trade_log.filter(t => t.bought && t.profit > 0).length : 0;
+                        const bWins = b.trade_log ? b.trade_log.filter(t => t.bought && t.profit > 0).length : 0;
+                        return bWins - aWins;
+                    });
+                    break;
+                case 'win2':
+                    // Sort by calculated win rate from trade_log (wins / total * 100)
+                    sorted.sort((a, b) => {
+                        const getWinRate = (item) => {
+                            if (!item.trade_log) return 0;
+                            const trades = item.trade_log.filter(t => t.bought);
+                            const wins = trades.filter(t => t.profit > 0).length;
+                            const total = trades.length;
+                            return total > 0 ? (wins / total * 100) : 0;
+                        };
+                        return getWinRate(b) - getWinRate(a);
+                    });
+                    break;
                 case 'date':
                 default:
                     sorted.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -1505,6 +1887,7 @@
             searchFilter = document.getElementById('history-search').value;
             showGpuRuns = document.getElementById('filter-gpu').checked;
             showCpuRuns = document.getElementById('filter-cpu').checked;
+            historyDisplayLimit = 30; // Reset pagination on filter change
             sortAndRenderHistory();
         }
 
@@ -1520,7 +1903,7 @@
         // Render history list
         // Track which symbols have cached data
         let cachedSymbolsList = new Set();
-        
+
         async function loadCachedSymbolsList() {
             try {
                 const resp = await fetch('/api/price-cache');
@@ -1541,7 +1924,12 @@
                 return;
             }
 
-            container.innerHTML = history.map(item => {
+            // Paginate: only show up to historyDisplayLimit items
+            const displayedHistory = history.slice(0, historyDisplayLimit);
+            const hasMore = history.length > historyDisplayLimit;
+            const remaining = history.length - historyDisplayLimit;
+
+            container.innerHTML = displayedHistory.map(item => {
                 const sharpe = item.sharpe_from_json ?? item.score;
                 const maxGain = item.volatility_max_gain;
                 const isGpu = item.method === 'gpu_grid_search';
@@ -1554,7 +1942,7 @@
                 const dbIcon = cachedSymbolsList.has(item.symbol.toUpperCase())
                     ? '<span class="gpu-icon" style="background: linear-gradient(135deg, #10b981, #059669); margin-top: 2px;" title="Data Cached in DB">DB</span>'
                     : '';
-                const algoName = item.algo || 'Default';
+                const algoName = item.algo === 'default' ? 'dipper' : (item.algo || 'dipper');
                 const algoBadge = `<span style="font-size: 0.55rem; color: #ff6b6b; margin-left: 0.3rem; font-weight: 600;">${algoName}</span>`;
                 return `
                 <div class="history-item">
@@ -1568,12 +1956,47 @@
                         <div class="history-date">${formatDate(item.created_at)}</div>
                         <div class="history-score">
                             win: ${item.win_rate ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'} | 
-                            ret: ${item.total_return ? parseFloat(item.total_return).toFixed(1) + '%' : 'N/A'}
+                            ret: ${item.total_return ? (parseFloat(item.total_return) * 100).toFixed(0) + '%' : 'N/A'}
+                        </div>
+                        <div class="history-score" style="font-size: 0.65rem; opacity: 0.8;">
+                            fin: ${(() => {
+                        // Get final equity from last trade in trade_log
+                        const capital = item.capital || 100000;
+                        if (item.trade_log && item.trade_log.length > 0) {
+                            // Find last trade with equity value
+                            const tradesWithEquity = item.trade_log.filter(t => t.equity);
+                            if (tradesWithEquity.length > 0) {
+                                const lastEquity = tradesWithEquity[tradesWithEquity.length - 1].equity;
+                                const finalPct = (lastEquity / capital * 100).toFixed(1);
+                                return finalPct + '%';
+                            }
+                        }
+                        return 'N/A';
+                    })()} | ${(() => {
+                        // Count wins and losses from trade_log - wins in blue, losses in red, then show win rate %
+                        if (!item.trade_log) return 'N/A';
+                        const trades = item.trade_log.filter(t => t.bought);
+                        const wins = trades.filter(t => t.profit > 0).length;
+                        const losses = trades.filter(t => t.profit <= 0).length;
+                        const total = wins + losses;
+                        const winRate = total > 0 ? (wins / total * 100).toFixed(0) : 0;
+                        return '<span style="color: var(--accent);">' + wins + '</span>/<span style="color: var(--danger);">' + losses + '</span> | ' + winRate + '%';
+                    })()}
                         </div>
                     </div>
                     <button class="delete-btn" onclick="event.stopPropagation(); deleteHistoryItem(${item.id})" title="Delete">🗑️</button>
                 </div>
-            `}).join('');
+            `}).join('') + (hasMore ? `
+                <button onclick="loadMoreHistory()" style="width: 100%; padding: 10px; margin-top: 8px; background: rgba(29, 155, 240, 0.2); border: 1px solid var(--accent); border-radius: 8px; color: var(--accent); cursor: pointer; font-size: 0.8rem;">
+                    📋 Load More (${remaining} remaining)
+                </button>
+            ` : '');
+        }
+
+        // Load more history items
+        function loadMoreHistory() {
+            historyDisplayLimit += 30;
+            sortAndRenderHistory();
         }
 
         // Delete history item
@@ -1743,14 +2166,20 @@
             document.getElementById('symbols').value = item.symbol;
             if (item.start_date) document.getElementById('start-date').value = item.start_date;
             if (item.end_date) document.getElementById('end-date').value = item.end_date;
+            // Load backtest dates - use optimization dates as fallback
+            document.getElementById('backtest-start-date').value = item.backtest_start_date || item.start_date || '';
+            document.getElementById('backtest-end-date').value = item.backtest_end_date || item.end_date || '';
             if (item.capital) document.getElementById('capital').value = item.capital;
             if (item.n_trials) document.getElementById('trials').value = item.n_trials;
             if (item.optimized_for) document.getElementById('metric').value = item.optimized_for;
+            // Set algo dropdown if available
+            if (item.algo) document.getElementById('algo-select').value = item.algo;
             // Set GPU checkbox based on how this run was executed
             const wasGpuRun = item.method === 'gpu_grid_search';
             document.getElementById('use-gpu').checked = wasGpuRun;
+            onAlgoChange(); // Update algo description
             saveConfig();
-            log(`Applied settings from ${item.symbol} history (GPU: ${wasGpuRun ? 'Yes' : 'No'})`, 'success');
+            log(`Applied settings from ${item.symbol} history (Algo: ${item.algo || 'default'})`, 'success');
         }
 
         function connectWebSocket() {
@@ -1803,14 +2232,14 @@
                     break;
             }
         }
-        
+
         function showWarning(data) {
             log(`[${data.symbol}] ${data.message}`, 'warning');
-            
+
             // Store warning for display in results
             if (!window.dataRangeWarnings) window.dataRangeWarnings = {};
             window.dataRangeWarnings[data.symbol] = data.message;
-            
+
             // Show warning in the card if it exists
             const card = document.getElementById(`card-${data.symbol}`);
             if (card) {
@@ -1835,11 +2264,35 @@
 
             // Update the trials display based on phase
             const phaseMessages = {
-                'fetching_data': `📥 Fetching ${data.symbol} data...`,
+                'downloading_data': `⬇️ Downloading missing data for ${data.symbol}...`,
+                'fetching_data': `📥 Using cached data for ${data.symbol}...`,
+                'fetching_vwap_data': `📊 Fetching VWAP & 10AM prices...`,
+                'processing_vwap': `📊 Processing VWAP data...`,
                 'analyzing': `🔬 Analyzing ${data.symbol} volatility...`,
                 'optimizing': `🧠 Optimizing ${data.symbol}...`,
-                'optimizing_gpu': `🔥 GPU optimizing ${data.symbol}...`
+                'optimizing_gpu': `🔥 GPU optimizing ${data.symbol}...`,
+                'optimizing_timing': `⏰ Finding optimal buy time...`,
+                'generating_trade_log': `📝 Generating trade log...`,
+                'saving_to_db': `💾 Saving results to database...`
             };
+
+            // Short phase names for stats bar (always update)
+            const shortPhaseNames = {
+                'fetching_data': '📥 Fetch',
+                'fetching_vwap_data': '📊 VWAP',
+                'processing_vwap': '📊 VWAP Done',
+                'analyzing': '🔬 Analyze',
+                'optimizing': '🧠 Optimize',
+                'optimizing_gpu': '🔥 GPU',
+                'optimizing_timing': '⏰ Timing',
+                'generating_trade_log': '📝 TradeLog',
+                'saving_to_db': '💾 Saving'
+            };
+
+            // Always update phase status
+            if (shortPhaseNames[data.status]) {
+                document.getElementById('phase-status').textContent = shortPhaseNames[data.status];
+            }
 
             if (phaseMessages[data.status]) {
                 document.getElementById('progress-trials').textContent = phaseMessages[data.status];
@@ -1905,9 +2358,27 @@
             const totalTrials = globalProgress.totalSymbols * globalProgress.trialsPerSymbol;
             const completedTrials = (globalProgress.completedSymbols * globalProgress.trialsPerSymbol) + data.trials_completed;
             document.getElementById('progress-trials').textContent = `Trial ${completedTrials}/${totalTrials}`;
+            document.getElementById('iter-count').textContent = `${data.trials_completed}/${data.total_trials || globalProgress.trialsPerSymbol}`;
 
-            // Update percentage
-            const percent = totalTrials > 0 ? (completedTrials / totalTrials) * 100 : 0;
+            // Update phase status based on progress phase
+            const phaseMap = {
+                'gpu_preparing': '⏳ Preparing',
+                'gpu_optimizing': '🔥 Grid Search',
+                'gpu_complete': '⏳ Post-process...'  // Changed from Complete to indicate more work
+            };
+            if (data.phase && phaseMap[data.phase]) {
+                document.getElementById('phase-status').textContent = phaseMap[data.phase];
+
+                // When grid search completes, show estimated post-processing time
+                if (data.phase === 'gpu_complete') {
+                    document.getElementById('remaining-time').textContent = '~0:30';  // ~30s for post-process
+                    document.getElementById('progress-trials').textContent = 'Grid search done, generating trade log...';
+                }
+            }
+
+            // Update percentage (cap at 95% until truly complete to show post-processing remaining)
+            const rawPercent = totalTrials > 0 ? (completedTrials / totalTrials) * 100 : 0;
+            const percent = data.phase === 'gpu_complete' ? 95 : Math.min(rawPercent * 0.9, 95);  // Reserve 5% for post-processing
             fillBar.style.width = `${percent}%`;
             document.getElementById('global-progress-percent').textContent = `${Math.round(percent)}%`;
 
@@ -1939,10 +2410,13 @@
                 const params = card.querySelector('.current-params');
                 const r = data.result;
                 if (params) {
+                    const algoType = document.getElementById('algo-select').value;
+                    const isVWAP = algoType === 'chatgpt_vwap';
                     params.innerHTML = `
             <div class="param"><div class="param-label">Buy Trigger</div><div class="param-value">${r.best_params.buy_trigger_pct}%</div></div>
             <div class="param"><div class="param-label">Sell Trigger</div><div class="param-value">${r.best_params.sell_trigger_pct}%</div></div>
             <div class="param"><div class="param-label">Compound</div><div class="param-value">${r.best_params.compound ? 'Yes' : 'No'}</div></div>
+            ${isVWAP ? '<div class="param"><div class="param-label">Stop Loss</div><div class="param-value" style="color: #22c55e;">None</div></div>' : ''}
           `;
                 }
 
@@ -1978,6 +2452,25 @@
                 trade_log: data.result.trade_log
             });
             switchLogTab('analysis');
+
+            // Add to history list immediately without full reload
+            if (data.result.history_id) {
+                const newHistoryItem = {
+                    id: data.result.history_id,
+                    symbol: data.symbol,
+                    algo: document.getElementById('algo-select').value,
+                    created_at: new Date().toISOString(),
+                    method: 'gpu_grid_search',
+                    win_rate: data.result.metrics?.win_rate,
+                    total_return: data.result.metrics?.total_return,
+                    capital: parseInt(document.getElementById('capital').value) || 100000,
+                    trade_log: data.result.trade_log,
+                    best_params: data.result.best_params
+                };
+                historyData.unshift(newHistoryItem);  // Add to front of list
+                document.getElementById('history-count').textContent = `(${historyData.length})`;
+                sortAndRenderHistory();  // Re-render the list
+            }
         }
 
         function showError(data) {
@@ -2035,6 +2528,41 @@
         // CAP Stock List - Large Cap Focus (blue chips + growth)
         const CAP_STOCK_LIST = 'AAPL,MSFT,NVDA,GOOGL,GOOG,AMZN,META,BRK.A,BRK.B,LLY,AVGO,TSLA,JPM,V,UNH,XOM,MA,JNJ,HD,COST,PG,ABBV,MRK,ORCL,CRM,KO,PEP,ADBE,WMT,NFLX,AMD,LIN,CSCO,ACN,MCD,TMO,INTU,DIS,NKE,ABT,CVX,TXN,AMGN,IBM,PM,UPS,LOW,NEE,RTX,MS,GS,SPGI,BLK,ISRG,QCOM,CAT,DE,SBUX,EL,PLD,MDT,AMAT,ADI,LMT,GE,AXP,CB,MMC,CI,MO,BDX,ZTS,ICE,DUK,SO,EQIX,SHW,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,ADP,PAYX,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,ROKU,SPOT,UBER,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,ALK,BA,GD,NOC,LHX,TDG,URI,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,RSG,AWK,PCAR,CUMM,ALB,FCX,NEM,AA,STLD,NUE,CE,LYB,DOW,EMN,APTV,F,ROK,KEYS,AME,IR,XYL,TT,WAB,EFX,MTB,HBAN,RF,TFC,CFG,STT,NTRS,BK,AMP,IVZ,DFS,SYF,COIN,MSTR,RIOT,MARA,CHTR,CMCSA,VZ,T,TMUS,ZS,OKTA,WDAY,NOW,SQ,PYPL,INTC,TSM,ASML,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,FSLR,PLUG,BLDP,CHPT,QS,ON,STM,NXPI,INFY,CTSH,EPAM,DXC,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,SMAR,PSTG,NTNX,VMW,LOGI,EA,TTWO,MTCH,BMBL,PLTR,AI,UPST,AFRM,SOFI,HOOD,CLS,ONTO,FORM,SMCI,GRMN,TRMB,IRDM,VSAT,ASTS,RKLB,JOBY,ACHR,PL,MAXR,SPCE'.split(',');
 
+        // Track active job IDs for cancellation
+        let activeJobIds = [];
+        let optimizationStopped = false;
+
+        async function stopOptimization() {
+            if (activeJobIds.length === 0) {
+                log('No active optimization to stop', 'warning');
+                return;
+            }
+
+            optimizationStopped = true;
+            log('🛑 Stopping optimization...', 'warning');
+
+            try {
+                const resp = await fetch('/api/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ job_ids: activeJobIds })
+                });
+
+                const data = await resp.json();
+                log(`✅ Optimization stopped: ${data.message || 'Cancelled'}`, 'info');
+
+                // Reset UI
+                document.getElementById('start-btn').disabled = false;
+                document.getElementById('start-btn').textContent = 'Start Optimization';
+                document.getElementById('global-progress').style.display = 'none';
+                activeJobIds = [];
+                optimizationStopped = false;
+
+            } catch (e) {
+                log(`Failed to stop: ${e.message}`, 'error');
+            }
+        }
+
         async function startOptimization() {
             let symbolsInput = document.getElementById('symbols').value.trim().toUpperCase();
 
@@ -2088,6 +2616,8 @@
 
             try {
                 const algo = document.getElementById('algo-select').value;
+                const backtestStart = document.getElementById('backtest-start-date').value;
+                const backtestEnd = document.getElementById('backtest-end-date').value;
                 const resp = await fetch('/api/optimize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2095,6 +2625,8 @@
                         symbols,
                         start_date: startDate,
                         end_date: endDate,
+                        backtest_start_date: backtestStart || null,
+                        backtest_end_date: backtestEnd || null,
                         capital,
                         n_trials: trials,
                         optimization_metric: metric,
@@ -2106,6 +2638,9 @@
                 });
 
                 const data = await resp.json();
+                if (data.job_id) {
+                    activeJobIds.push(data.job_id);
+                }
                 log(`Job started: ${data.job_id}`, 'info');
             } catch (e) {
                 log(`Failed to start: ${e.message}`, 'error');
