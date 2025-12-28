@@ -2,6 +2,14 @@
 
 A comprehensive trading backtesting platform with **AI-powered parameter optimization** using Bayesian optimization (Optuna) and GPU acceleration. Supports multiple algorithmic strategies including PPO, LSTM, and advanced Momentum-based day trading.
 
+## 📸 Screenshots
+
+### Dashboard Console
+![Dashboard - Model Configuration, Charts, and Performance Metrics](images/dashboard.jpg)
+
+### Trade Log
+![Trade Log - Chronological trade history with detailed metrics](images/trade_log.jpg)
+
 ## 🚀 New: Smart Parameter Optimizer
 
 The **Stock Parameter Optimizer** uses Bayesian optimization to automatically find the best buy/sell triggers for each stock based on its unique volatility characteristics.
