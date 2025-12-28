@@ -8,8 +8,12 @@ Saves optimization results to PostgreSQL database.
 import os
 import json
 import asyncio
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import Dict, List, Optional
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import numpy as np
@@ -64,6 +68,59 @@ DB_CONFIG = {
     "host": os.getenv("POSTGRES_HOST", "ppoalgo_db_1"),
     "port": int(os.getenv("POSTGRES_PORT", "5432")),
 }
+
+# Timezone constants
+ET_ZONE = ZoneInfo("America/New_York")
+UTC_ZONE = ZoneInfo("UTC")
+
+
+def get_et_minutes_from_timestamp(bar_time: str) -> int | None:
+    """
+    Convert UTC timestamp string to Eastern Time minutes since midnight.
+    Properly handles DST by using America/New_York timezone.
+    
+    Args:
+        bar_time: ISO timestamp string (e.g., "2024-01-18T15:00:00Z" or "2024-01-18T15:00:00+00:00")
+    
+    Returns:
+        Minutes since midnight in Eastern Time, or None if parsing fails
+    """
+    if not bar_time or "T" not in bar_time:
+        return None
+    
+    try:
+        # Parse the timestamp - handle various formats
+        ts = bar_time.replace("Z", "+00:00")
+        
+        # If no timezone info, assume UTC
+        if "+" not in ts and ts.count("-") == 2:
+            ts = ts + "+00:00"
+        
+        # Parse with fromisoformat (handles timezone)
+        dt_utc = datetime.fromisoformat(ts)
+        
+        # If no timezone, assume UTC
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=UTC_ZONE)
+        
+        # Convert to Eastern Time (handles DST automatically)
+        dt_et = dt_utc.astimezone(ET_ZONE)
+        
+        # Return minutes since midnight
+        return dt_et.hour * 60 + dt_et.minute
+    except Exception:
+        # Fallback to manual parsing (legacy behavior for unusual formats)
+        try:
+            hour = int(bar_time[11:13])
+            minute = int(bar_time[14:16])
+            utc_minutes = hour * 60 + minute
+            # Use EST offset (this won't handle DST but is a fallback)
+            et_minutes = utc_minutes - 300
+            if et_minutes < 0:
+                et_minutes += 1440
+            return et_minutes
+        except Exception:
+            return None
 
 
 def get_db_conn():
@@ -687,6 +744,111 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
     return result
 
 
+# ============================================================================
+# WIDESURF API DATA FETCHER
+# ============================================================================
+
+# Widesurf API configuration
+WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "pluq8P0XTgucCN6kyxey5EPTof36R54lQc3rfgQsoNQ")
+WIDESURF_API_URL = "https://api.widesurf.com"
+
+def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, timeframe: str = "1Min") -> list:
+    """
+    Fetch historical price data from Widesurf API.
+    
+    Args:
+        symbol: Stock symbol (e.g., AAPL)
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)
+        timeframe: "1Min" for minute bars, "1Day" for daily bars
+    
+    Returns:
+        List of price bars in standard format
+    """
+    symbol = symbol.upper()
+    bars = []
+    
+    # Map timeframe to Widesurf format
+    if timeframe == "1Day":
+        multiplier = 1
+        timespan = "day"
+    else:  # 1Min
+        multiplier = 1
+        timespan = "minute"
+    
+    # Build Widesurf API URL
+    # Format: GET https://api.widesurf.com/v1/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}
+    url = f"{WIDESURF_API_URL}/v1/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start_date}/{end_date}"
+    params = {
+        "adjusted": "true",
+        "sort": "asc",
+        "limit": 50000  # Get as many bars as possible
+    }
+    headers = {
+        "X-API-KEY": WIDESURF_API_KEY
+    }
+    
+    logger.info(f"Fetching from Widesurf API: {symbol} {timeframe} {start_date} to {end_date}")
+    
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=60)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            results = data.get("results", [])
+            
+            for bar in results:
+                # Convert Widesurf format to our standard format
+                # Widesurf returns: o, h, l, c, v, vw (VWAP), t (timestamp in ms)
+                timestamp_ms = bar.get("t", 0)
+                
+                # Convert timestamp from ms to ISO format
+                if timestamp_ms:
+                    dt = datetime.utcfromtimestamp(timestamp_ms / 1000)
+                    timestamp_str = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                else:
+                    timestamp_str = ""
+                
+                bars.append({
+                    "t": timestamp_str,
+                    "o": bar.get("o", 0),
+                    "h": bar.get("h", 0),
+                    "l": bar.get("l", 0),
+                    "c": bar.get("c", 0),
+                    "v": bar.get("v", 0),
+                    "vw": bar.get("vw", 0)  # VWAP
+                })
+            
+            logger.info(f"Widesurf returned {len(bars)} bars for {symbol}")
+        else:
+            logger.error(f"Widesurf API error: status {resp.status_code}, response: {resp.text[:500]}")
+            
+    except Exception as e:
+        logger.error(f"Widesurf API request failed: {e}")
+    
+    return bars
+
+
+def fetch_prices_universal(symbol: str, start_date: str, end_date: str, timeframe: str = "1Min", data_source: str = "alpaca") -> list:
+    """
+    Universal price fetcher that supports multiple data sources.
+    
+    Args:
+        symbol: Stock symbol
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)
+        timeframe: "1Min" or "1Day"
+        data_source: "alpaca" (default via PPOALGO_API) or "widesurf"
+    
+    Returns:
+        List of price bars
+    """
+    if data_source == "widesurf":
+        return fetch_prices_from_widesurf(symbol, start_date, end_date, timeframe)
+    else:
+        # Use the existing Alpaca API via fetch_and_cache_prices
+        return fetch_and_cache_prices(symbol, start_date, end_date, timeframe)
+
 app = FastAPI(title="Stock Optimizer GUI")
 
 app.add_middleware(
@@ -700,8 +862,10 @@ app.add_middleware(
 # Import and register routers
 from routers.api_tester import router as api_tester_router
 from routers.history import router as history_router
+from routers.ai100 import router as ai100_router
 app.include_router(api_tester_router)
 app.include_router(history_router)
+app.include_router(ai100_router)
 
 # Import database functions
 from database import get_db_conn, ensure_tables, save_job_to_db, save_result_to_db, update_job_status, get_results_from_db, convert_numpy_types
@@ -735,6 +899,7 @@ class OptimizationRequest(BaseModel):
     smart_timing: bool = False  # Enable optimal buy time optimization
     timing_approach: str = "sequential"  # "sequential" or "joint"
     algo: str = "default"  # "default" or "chatgpt"
+    data_source: str = "alpaca"  # "alpaca" or "widesurf"
 
 
 class StockVolatilityAnalyzer:
@@ -839,47 +1004,50 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
                             bars_by_date[date_part] = []
                         bars_by_date[date_part].append(bar)
                 
-                # For each date, find the exact 10AM bar (15:00 UTC) and calculate VWAP
+                # For each date, find the exact 10AM bar and calculate VWAP
+                # Uses DST-aware timezone conversion
                 for date_part, day_bars in bars_by_date.items():
                     best_10am_bar = None
+                    best_10am_diff = 9999
                     vwap_bars = []
                     or_highs = []  # Opening range highs (9:30-10:00)
                     or_lows = []   # Opening range lows (9:30-10:00)
-                    vwap_945_bars = []  # Bars for VWAP at 9:45
+                    vwap_945_bars = []  # Bars for VWAP at 9:40
                     
                     for bar in day_bars:
                         bar_time = bar.get("t", "")
-                        try:
-                            hour = int(bar_time[11:13])
-                            minute = int(bar_time[14:16])
-                            utc_minutes = hour * 60 + minute
-                            et_minutes = utc_minutes - 300  # UTC to EST
-                            if et_minutes < 0:
-                                et_minutes += 1440
-                            
-                            # Collect bars from 9:30 to 10:00 for VWAP and OR
-                            if 570 <= et_minutes <= 600:
-                                vwap_bars.append(bar)
-                                or_highs.append(bar.get("h", 0))
-                                or_lows.append(bar.get("l", 0))
-                            
-                            # Collect bars from 9:30 to 9:40 for VWAP_9:40 (robust slope)
-                            if 570 <= et_minutes <= 580:
-                                vwap_945_bars.append(bar)  # reusing variable name
-                            
-                            # Find closest bar to 10:00 AM EST (600 minutes)
-                            if best_10am_bar is None:
+                        et_minutes = get_et_minutes_from_timestamp(bar_time)
+                        
+                        if et_minutes is None:
+                            continue
+                        
+                        # Collect bars from 9:30 to 10:00 for VWAP and OR
+                        if 570 <= et_minutes <= 600:
+                            vwap_bars.append(bar)
+                            or_highs.append(bar.get("h", 0))
+                            or_lows.append(bar.get("l", 0))
+                        
+                        # Collect bars from 9:30 to 9:40 for VWAP_9:40 (robust slope)
+                        if 570 <= et_minutes <= 580:
+                            vwap_945_bars.append(bar)
+                        
+                        # Find closest bar to 10:00 AM EST (600 minutes)
+                        # Only consider bars within market hours (9:30 AM - 4:00 PM = 570-960 minutes)
+                        if 570 <= et_minutes <= 960:
+                            diff = abs(et_minutes - 600)
+                            if diff < best_10am_diff:
                                 best_10am_bar = bar
-                                best_10am_bar["_et_diff"] = abs(et_minutes - 600)
-                            else:
-                                if abs(et_minutes - 600) < best_10am_bar.get("_et_diff", 9999):
-                                    best_10am_bar = bar
-                                    best_10am_bar["_et_diff"] = abs(et_minutes - 600)
-                        except:
-                            pass
+                                best_10am_diff = diff
                     
-                    # Get 10AM price and calculate VWAP at 10:00
-                    price_10am = best_10am_bar.get("c", best_10am_bar.get("o", 0)) if best_10am_bar else 0
+                    # Get 10AM price - verify the selected bar is reasonably close to 10:00 AM
+                    # (within 5 minutes to avoid using wrong bar)
+                    if best_10am_bar and best_10am_diff <= 5:
+                        price_10am = best_10am_bar.get("c", best_10am_bar.get("o", 0))
+                    else:
+                        # No bar close enough to 10:00 AM found
+                        price_10am = 0
+                        if best_10am_bar:
+                            logger.warning(f"Best 10AM bar for {date_part} is {best_10am_diff} minutes away from 10:00 AM")
                     
                     # Calculate VWAP at 10:00 (9:30 - 10:00)
                     cum_tpv = 0
@@ -1688,13 +1856,17 @@ async def optimize_stock(
             else:
                 download_msg = f"Downloading data for {symbol} ({cached_max} to {config.end_date})..."
     
-    if need_download:
+    # Get data source for status messages
+    data_source = getattr(config, 'data_source', 'alpaca')
+    data_source_label = "Widesurf API" if data_source == "widesurf" else "Alpaca API"
+    
+    if need_download or data_source == "widesurf":
         await broadcast_message({
             "type": "status",
             "job_id": job_id,
             "symbol": symbol,
             "status": "downloading_data",
-            "message": download_msg
+            "message": f"Fetching {symbol} from {data_source_label}..." if data_source == "widesurf" else download_msg
         })
     else:
         await broadcast_message({
@@ -1702,12 +1874,23 @@ async def optimize_stock(
             "job_id": job_id,
             "symbol": symbol,
             "status": "fetching_data",
-            "message": f"Using cached data for {symbol} ({cached_min} to {cached_max})..."
+            "message": f"Using cached data for {symbol} ({cached_min} to {cached_max}) [{data_source_label}]..."
         })
     
     # Fetch price data with caching (downloads missing ranges automatically)
     try:
-        bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Day")
+        # Use data source from config (default: alpaca)
+        data_source = getattr(config, 'data_source', 'alpaca')
+        
+        if data_source == "widesurf":
+            # Use Widesurf API directly
+            bars = fetch_prices_from_widesurf(symbol, config.start_date, config.end_date, "1Day")
+            if not bars:
+                logger.warning(f"Widesurf returned no data for {symbol}, trying cache")
+                bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Day")
+        else:
+            # Use the cached system for Alpaca API
+            bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Day")
         
         # Fallback to direct API if cache fails
         if not bars:
@@ -1819,28 +2002,24 @@ async def optimize_stock(
                 
                 for date_part, day_bars in bars_by_date.items():
                     best_10am_bar = None
+                    best_10am_diff = 9999
                     for bar in day_bars:
                         bar_time = bar.get("t", "")
-                        try:
-                            hour = int(bar_time[11:13])
-                            minute = int(bar_time[14:16])
-                            utc_minutes = hour * 60 + minute
-                            et_minutes = utc_minutes - 300  # UTC to EST
-                            if et_minutes < 0:
-                                et_minutes += 1440
-                            
-                            # Find closest bar to 10:00 AM EST (600 minutes)
-                            if best_10am_bar is None:
+                        et_minutes = get_et_minutes_from_timestamp(bar_time)
+                        
+                        if et_minutes is None:
+                            continue
+                        
+                        # Find closest bar to 10:00 AM EST (600 minutes)
+                        # Only consider bars within market hours (9:30 AM - 4:00 PM)
+                        if 570 <= et_minutes <= 960:
+                            diff = abs(et_minutes - 600)
+                            if diff < best_10am_diff:
                                 best_10am_bar = bar
-                                best_10am_bar["_et_diff"] = abs(et_minutes - 600)
-                            else:
-                                if abs(et_minutes - 600) < best_10am_bar.get("_et_diff", 9999):
-                                    best_10am_bar = bar
-                                    best_10am_bar["_et_diff"] = abs(et_minutes - 600)
-                        except:
-                            pass
+                                best_10am_diff = diff
                     
-                    if best_10am_bar:
+                    # Only use the bar if it's within 5 minutes of 10:00 AM
+                    if best_10am_bar and best_10am_diff <= 5:
                         price_10am_map[date_part] = best_10am_bar.get("c", best_10am_bar.get("o", 0))
                 
                 logger.info(f"Found 10AM prices for {len(price_10am_map)} days for ChatGPT strategy")
@@ -1910,28 +2089,24 @@ async def optimize_stock(
                 
                 for date_part, day_bars in bars_by_date.items():
                     best_10am_bar = None
+                    best_10am_diff = 9999
                     for bar in day_bars:
                         bar_time = bar.get("t", "")
-                        try:
-                            hour = int(bar_time[11:13])
-                            minute = int(bar_time[14:16])
-                            utc_minutes = hour * 60 + minute
-                            et_minutes = utc_minutes - 300  # UTC to EST
-                            if et_minutes < 0:
-                                et_minutes += 1440
-                            
-                            # Find closest bar to 10:00 AM EST (600 minutes)
-                            if best_10am_bar is None:
+                        et_minutes = get_et_minutes_from_timestamp(bar_time)
+                        
+                        if et_minutes is None:
+                            continue
+                        
+                        # Find closest bar to 10:00 AM EST (600 minutes)
+                        # Only consider bars within market hours (9:30 AM - 4:00 PM)
+                        if 570 <= et_minutes <= 960:
+                            diff = abs(et_minutes - 600)
+                            if diff < best_10am_diff:
                                 best_10am_bar = bar
-                                best_10am_bar["_et_diff"] = abs(et_minutes - 600)
-                            else:
-                                if abs(et_minutes - 600) < best_10am_bar.get("_et_diff", 9999):
-                                    best_10am_bar = bar
-                                    best_10am_bar["_et_diff"] = abs(et_minutes - 600)
-                        except:
-                            pass
+                                best_10am_diff = diff
                     
-                    if best_10am_bar:
+                    # Only use the bar if it's within 5 minutes of 10:00 AM
+                    if best_10am_bar and best_10am_diff <= 5:
                         price_10am_map[date_part] = best_10am_bar.get("c", best_10am_bar.get("o", 0))
                 
                 logger.info(f"Found 10AM prices for {len(price_10am_map)} days for ChatGPT Stop Loss")
@@ -2010,40 +2185,35 @@ async def optimize_stock(
                         bars_by_date[date_part].append(bar)
                 
                 # For each date, find the 10AM bar and calculate VWAP from 9:30 to 10AM
+                # Uses DST-aware timezone conversion
                 for date_part, day_bars in bars_by_date.items():
                     price_10am = None
                     best_10am_bar = None
+                    best_10am_diff = 9999
                     vwap_bars = []
                     
                     for bar in day_bars:
                         bar_time = bar.get("t", "")
-                        try:
-                            # Parse UTC hour and minute
-                            hour = int(bar_time[11:13])
-                            minute = int(bar_time[14:16])
-                            utc_minutes = hour * 60 + minute
-                            et_minutes = utc_minutes - 300  # UTC to EST
-                            if et_minutes < 0:
-                                et_minutes += 1440
-                            
-                            # 9:30 AM EST = 570 minutes, 10:00 AM EST = 600 minutes
-                            # Collect bars from 9:30 to 10:00 for VWAP calculation
-                            if 570 <= et_minutes <= 600:
-                                vwap_bars.append(bar)
-                            
-                            # Find exact 10:00 AM EST bar (600 minutes or closest)
-                            if best_10am_bar is None:
+                        et_minutes = get_et_minutes_from_timestamp(bar_time)
+                        
+                        if et_minutes is None:
+                            continue
+                        
+                        # 9:30 AM EST = 570 minutes, 10:00 AM EST = 600 minutes
+                        # Collect bars from 9:30 to 10:00 for VWAP calculation
+                        if 570 <= et_minutes <= 600:
+                            vwap_bars.append(bar)
+                        
+                        # Find exact 10:00 AM EST bar (600 minutes or closest)
+                        # Only consider bars within market hours (9:30 AM - 4:00 PM)
+                        if 570 <= et_minutes <= 960:
+                            diff = abs(et_minutes - 600)
+                            if diff < best_10am_diff:
                                 best_10am_bar = bar
-                                best_10am_bar["_et_diff"] = abs(et_minutes - 600)
-                            else:
-                                if abs(et_minutes - 600) < best_10am_bar.get("_et_diff", 9999):
-                                    best_10am_bar = bar
-                                    best_10am_bar["_et_diff"] = abs(et_minutes - 600)
-                        except:
-                            pass
+                                best_10am_diff = diff
                     
-                    # Get 10AM price from closest bar
-                    if best_10am_bar:
+                    # Get 10AM price from closest bar (must be within 5 minutes)
+                    if best_10am_bar and best_10am_diff <= 5:
                         price_10am = best_10am_bar.get("c", best_10am_bar.get("o", 0))
                     
                     # Calculate VWAP from 9:30 to 10AM
@@ -2219,10 +2389,12 @@ async def optimize_stock(
                 })
                 logger.info(f"Smart Timing complete for {symbol}: {optimal_time} CDT")
             
-            # Add algo to result
+            # Add algo and data_source to result
             algo_type = getattr(config, 'algo', 'default') or 'default'
-            logger.info(f"[GPU] Generating trade log for {symbol} with algo={algo_type}")
+            data_source = getattr(config, 'data_source', 'alpaca')
+            logger.info(f"[GPU] Generating trade log for {symbol} with algo={algo_type}, data_source={data_source}")
             result["algo"] = algo_type
+            result["data_source"] = data_source
             
             # Generate trade log for Analysis view
             # Use backtest dates if provided, otherwise use optimization dates
@@ -2452,10 +2624,12 @@ async def optimize_stock(
         # are available but disabled until intraday data API is confirmed working
         # The simple approach above provides reliable, research-based timing
 
-    # Add algo to result
+    # Add algo and data_source to result
     algo_type = getattr(config, 'algo', 'default') or 'default'
-    logger.info(f"Generating trade log for {symbol} with algo={algo_type}")
+    data_source = getattr(config, 'data_source', 'alpaca')
+    logger.info(f"Generating trade log for {symbol} with algo={algo_type}, data_source={data_source}")
     result["algo"] = algo_type
+    result["data_source"] = data_source
     
     # Generate trade log for Analysis view
     # Use backtest dates if provided, otherwise use optimization dates
