@@ -1,5 +1,7 @@
 # PPOAlgo - Smart Prop Firm Trading Console
 
+🔗 **[Live Demo](https://pbieda.com/projects/ppoalgo-momentum-algorithm-using-rtx-3090)**
+
 A comprehensive trading backtesting platform with **AI-powered parameter optimization** using Bayesian optimization (Optuna) and GPU acceleration. Supports multiple algorithmic strategies including PPO, LSTM, and advanced Momentum-based day trading.
 
 ## 📸 Screenshots
