@@ -18,64 +18,25 @@ router = APIRouter(prefix="/api/ai100", tags=["AI100"])
 API_KEY = "pluq8P0XTgucCN6kyxey5EPTof36R54lQc3rfgQsoNQ"
 
 
-def calculate_score(fin_value: float, position: int, total: int) -> float:
-    """
-    Calculate score based on fin (total return) and position in the sorted list.
-    
-    Score ranges:
-    - 99.99 to 90.00: Stocks with profit >= 115% (high performers)
-    - 89.99 to 80.00: Stocks with profit >= 100% but < 115% (profitable)  
-    - 79.99 to 70.00: Stocks with profit >= 0% but < 100% (marginally profitable)
-    - 69.99 to 60.00: Stocks with negative profit (losing money)
-    
-    Within each tier, scores decrease based on position.
-    """
-    # Determine tier based on fin value (total return percentage)
-    # fin_value is the total return percentage (e.g., 115.5 means 115.5% return)
-    if fin_value >= 115.0:
-        # High performers: 99.99 to 90.00
-        tier_min, tier_max = 90.00, 99.99
-    elif fin_value >= 100.0:
-        # Profitable but < 115%: 89.99 to 80.00
-        tier_min, tier_max = 80.00, 89.99
-    elif fin_value >= 0.0:
-        # Marginally profitable (0-100%): 79.99 to 70.00
-        tier_min, tier_max = 70.00, 79.99
-    else:
-        # Losing money: 69.99 to 60.00
-        tier_min, tier_max = 60.00, 69.99
-    
-    # Calculate position within tier (normalize to 0-1)
-    # position is 0-indexed, so position 0 = highest score in tier
-    if total > 1:
-        # Spread scores within the tier based on position
-        tier_range = tier_max - tier_min
-        score = tier_max - (position / (total - 1)) * tier_range if total > 1 else tier_max
-    else:
-        score = tier_max
-    
-    return round(score, 2)
-
-
 @router.get("/list")
 async def get_ai100_list(
     auth: str = Query(..., description="API authentication key"),
-    sort: str = Query("fin", description="Sort by: fin (final return), amnt (amount), or win2 (win/loss ratio)"),
+    sort: str = Query("fin", description="Sort by: fin (final equity ratio), amnt (number of wins), or win2 (win ratio)"),
     limit: int = Query(100, description="Number of stocks to return (default: 100)")
 ):
     """
     Get a sorted list of optimized stocks for AI trading.
     
-    Returns stocks sorted by the specified metric:
-    - fin: Sort by final return (total_return) descending
-    - amnt: Sort by amount/score descending  
-    - win2: Sort by win ratio (wins / total trades) descending
+    Sorting matches the frontend exactly:
+    - fin: Sort by lastEquity/capital from trade_log (final equity as ratio)
+    - amnt: Sort by number of winning trades (count of bought trades with profit > 0)
+    - win2: Sort by win ratio (wins / total trades * 100)
     
-    Score is calculated based on fin (total return):
-    - 99.99-90.00: Profit >= 115%
-    - 89.99-80.00: Profit >= 100% but < 115%
-    - 79.99-70.00: Profit >= 0% but < 100%
-    - 69.99-60.00: Negative profit
+    Score is calculated based on fin (final equity ratio):
+    - 99.99-90.00: fin >= 115% (high performers)
+    - 89.99-80.00: fin >= 100% but < 115% (profitable)
+    - 79.99-70.00: fin >= 0% but < 100% (marginally profitable)
+    - 69.99-60.00: fin < 0% (losing money)
     
     Response format:
     {
@@ -83,12 +44,12 @@ async def get_ai100_list(
         "data": {
             "stocks": [
                 {
-                    "pair": "AAPL",
-                    "score": 95.50,
+                    "pair": "PLUG",
+                    "score": 99.99,
                     "details": [{
-                        "fin": 1234.56,
+                        "fin": 153.1,
                         "amnt": 100000,
-                        "win2": "29_8"
+                        "win2": "23_10"
                     }]
                 }
             ],
@@ -122,7 +83,7 @@ async def get_ai100_list(
     
     try:
         with conn.cursor() as cur:
-            # Get all latest results for each symbol (we'll sort in Python for win2)
+            # Get all latest results for each symbol
             query = """
                 WITH latest_results AS (
                     SELECT DISTINCT ON (symbol) 
@@ -155,66 +116,67 @@ async def get_ai100_list(
             for row in rows:
                 symbol, score, total_return, win_rate, trade_log, capital = row
                 
-                # Parse values
-                try:
-                    fin_value = float(total_return) if total_return else 0.0
-                except (ValueError, TypeError):
-                    fin_value = 0.0
-                
-                try:
-                    score_value = float(score) if score else 0.0
-                except (ValueError, TypeError):
-                    score_value = 0.0
-                
+                # Parse capital value
                 try:
                     capital_value = float(capital) if capital else 100000
                 except (ValueError, TypeError):
                     capital_value = 100000
                 
+                # Calculate fin_value from trade_log (lastEquity / capital * 100)
+                # This matches the frontend 'fin' sorting exactly
+                fin_value = 0.0
+                last_equity = 0.0
+                if trade_log and isinstance(trade_log, list):
+                    trades_with_equity = [t for t in trade_log if isinstance(t, dict) and t.get("equity")]
+                    if trades_with_equity:
+                        last_equity = trades_with_equity[-1].get("equity", 0)
+                        fin_value = (last_equity / capital_value * 100) if capital_value > 0 else 0.0
+                
                 # Calculate win/loss counts from trade_log
+                # This matches the frontend exactly
                 wins = 0
                 losses = 0
                 if trade_log and isinstance(trade_log, list):
                     for trade in trade_log:
                         if isinstance(trade, dict):
-                            # Only count trades that were actually executed
+                            # Only count trades that were actually executed (bought = true)
                             if trade.get("bought") == True:
                                 profit = trade.get("profit", 0)
                                 if profit is not None and profit > 0:
                                     wins += 1
-                                elif profit is not None and profit < 0:
+                                elif profit is not None and profit <= 0:
                                     losses += 1
                 
-                # Calculate win ratio the same way frontend does: wins / total trades
+                # Calculate win ratio the same way frontend does: wins / total trades * 100
                 total_trades = wins + losses
                 calculated_win_ratio = (wins / total_trades * 100) if total_trades > 0 else 0.0
                 
                 processed_stocks.append({
                     "symbol": symbol,
-                    "fin_value": fin_value,
-                    "score_value": score_value,
+                    "fin_value": fin_value,          # lastEquity / capital * 100
+                    "last_equity": last_equity,
                     "capital_value": capital_value,
-                    "wins": wins,
+                    "wins": wins,                     # Number of winning trades
                     "losses": losses,
-                    "calculated_win_ratio": calculated_win_ratio,  # Use calculated ratio for sorting
+                    "calculated_win_ratio": calculated_win_ratio,  # wins / total * 100
                     "win2_str": f"{wins}_{losses}"
                 })
             
-            # Sort based on the requested criteria
+            # Sort based on the requested criteria (matching frontend exactly)
             if sort == "fin":
-                # Sort by fin (total return) descending
+                # Sort by fin (lastEquity / capital) descending - matches frontend 'fin' case
                 processed_stocks.sort(key=lambda x: x["fin_value"], reverse=True)
             elif sort == "amnt":
-                # Sort by score/amount descending
-                processed_stocks.sort(key=lambda x: x["score_value"], reverse=True)
+                # Sort by number of winning trades descending - matches frontend 'amnt' case
+                processed_stocks.sort(key=lambda x: x["wins"], reverse=True)
             else:  # win2
-                # Sort by calculated win ratio descending (same as UI: wins/total trades)
+                # Sort by calculated win ratio descending - matches frontend 'win2' case
                 processed_stocks.sort(key=lambda x: x["calculated_win_ratio"], reverse=True)
             
             # Apply limit
             processed_stocks = processed_stocks[:limit]
             
-            # Group stocks by tier for score calculation
+            # Group stocks by tier for score calculation based on fin_value
             tier_groups = {
                 "high": [],      # fin >= 115%
                 "medium": [],    # fin >= 100% but < 115%
