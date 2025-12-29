@@ -176,49 +176,60 @@ async def get_ai100_list(
             # Apply limit
             processed_stocks = processed_stocks[:limit]
             
-            # Group stocks by tier for score calculation based on fin_value
-            tier_groups = {
-                "high": [],      # fin >= 115%
-                "medium": [],    # fin >= 100% but < 115%
-                "low": [],       # fin >= 0% but < 100%
-                "negative": []   # fin < 0%
-            }
-            
-            for i, stock in enumerate(processed_stocks):
-                fin = stock["fin_value"]
-                if fin >= 115.0:
-                    tier_groups["high"].append((i, stock))
-                elif fin >= 100.0:
-                    tier_groups["medium"].append((i, stock))
-                elif fin >= 0.0:
-                    tier_groups["low"].append((i, stock))
-                else:
-                    tier_groups["negative"].append((i, stock))
-            
-            # Calculate scores within each tier
+            # Calculate scores based on sort type
             stock_scores = {}
+            total_count = len(processed_stocks)
             
-            for tier_name, tier_stocks in tier_groups.items():
-                tier_count = len(tier_stocks)
-                if tier_name == "high":
-                    tier_min, tier_max = 90.00, 99.99
-                elif tier_name == "medium":
-                    tier_min, tier_max = 80.00, 89.99
-                elif tier_name == "low":
-                    tier_min, tier_max = 70.00, 79.99
-                else:  # negative
-                    tier_min, tier_max = 60.00, 69.99
-                
-                # Sort stocks within tier by fin to assign scores properly
-                tier_stocks_sorted = sorted(tier_stocks, key=lambda x: x[1]["fin_value"], reverse=True)
-                
-                for pos, (orig_idx, stock) in enumerate(tier_stocks_sorted):
-                    if tier_count > 1:
-                        tier_range = tier_max - tier_min
-                        score = tier_max - (pos / (tier_count - 1)) * tier_range
+            if sort == "fin":
+                # For fin sort: score based on position (99.99 decreasing)
+                # Score decreases from 99.99 to ~60 based on position
+                for i, stock in enumerate(processed_stocks):
+                    if total_count > 1:
+                        # Spread scores from 99.99 down to 60.00 based on position
+                        score = 99.99 - (i / (total_count - 1)) * 39.99
                     else:
-                        score = tier_max
-                    stock_scores[orig_idx] = round(score, 2)
+                        score = 99.99
+                    stock_scores[i] = round(score, 2)
+            else:
+                # For amnt and win2: use tiered scoring based on fin_value
+                tier_groups = {
+                    "high": [],      # fin >= 115%
+                    "medium": [],    # fin >= 100% but < 115%
+                    "low": [],       # fin >= 0% but < 100%
+                    "negative": []   # fin < 0%
+                }
+                
+                for i, stock in enumerate(processed_stocks):
+                    fin = stock["fin_value"]
+                    if fin >= 115.0:
+                        tier_groups["high"].append((i, stock))
+                    elif fin >= 100.0:
+                        tier_groups["medium"].append((i, stock))
+                    elif fin >= 0.0:
+                        tier_groups["low"].append((i, stock))
+                    else:
+                        tier_groups["negative"].append((i, stock))
+                
+                for tier_name, tier_stocks in tier_groups.items():
+                    tier_count = len(tier_stocks)
+                    if tier_name == "high":
+                        tier_min, tier_max = 90.00, 99.99
+                    elif tier_name == "medium":
+                        tier_min, tier_max = 80.00, 89.99
+                    elif tier_name == "low":
+                        tier_min, tier_max = 70.00, 79.99
+                    else:  # negative
+                        tier_min, tier_max = 60.00, 69.99
+                    
+                    tier_stocks_sorted = sorted(tier_stocks, key=lambda x: x[1]["fin_value"], reverse=True)
+                    
+                    for pos, (orig_idx, stock) in enumerate(tier_stocks_sorted):
+                        if tier_count > 1:
+                            tier_range = tier_max - tier_min
+                            score = tier_max - (pos / (tier_count - 1)) * tier_range
+                        else:
+                            score = tier_max
+                        stock_scores[orig_idx] = round(score, 2)
             
             # Build final response
             stocks = []
