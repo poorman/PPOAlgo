@@ -190,8 +190,13 @@ async def get_ai100_list(
                     else:
                         score = 99.99
                     stock_scores[i] = round(score, 2)
+            elif sort == "win2":
+                # For win2 sort: score is the actual win percentage
+                for i, stock in enumerate(processed_stocks):
+                    # calculated_win_ratio is already wins / total * 100
+                    stock_scores[i] = round(stock["calculated_win_ratio"], 2)
             else:
-                # For amnt and win2: use tiered scoring based on fin_value
+                # For amnt: use tiered scoring based on fin_value
                 tier_groups = {
                     "high": [],      # fin >= 115%
                     "medium": [],    # fin >= 100% but < 115%
