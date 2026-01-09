@@ -814,6 +814,132 @@
             font-size: 0.75rem;
             color: var(--text-secondary);
         }
+
+        /* Trade Row Click Styles */
+        .trade-row {
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .trade-row:hover {
+            background: rgba(29, 155, 240, 0.15) !important;
+        }
+
+        .trade-row.selected {
+            background: rgba(29, 155, 240, 0.25) !important;
+            outline: 2px solid var(--accent);
+            outline-offset: -2px;
+        }
+
+        /* Trade Explanation Panel */
+        .trade-explanation-panel {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 1px solid var(--accent);
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            font-size: 0.8rem;
+            line-height: 1.7;
+            animation: slideDown 0.2s ease;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .explanation-title {
+            font-weight: 700;
+            color: var(--accent);
+            font-size: 0.95rem;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .explanation-close {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #94a3b8;
+            font-size: 1rem;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .explanation-close:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .explanation-section {
+            margin-bottom: 14px;
+        }
+
+        .explanation-section-title {
+            font-weight: 600;
+            color: #a78bfa;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .explanation-check {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin: 6px 0;
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+        }
+
+        .explanation-check.pass {
+            color: var(--success);
+            border-left: 3px solid var(--success);
+        }
+
+        .explanation-check.fail {
+            color: var(--danger);
+            border-left: 3px solid var(--danger);
+        }
+
+        .explanation-result {
+            margin-top: 14px;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+
+        .explanation-result.win {
+            background: rgba(34, 197, 94, 0.15);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: var(--success);
+        }
+
+        .explanation-result.loss {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: var(--danger);
+        }
+
+        .explanation-result.skip {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #f59e0b;
+        }
     </style>
 </head>
 
@@ -903,7 +1029,10 @@
                     <div style="font-size: 0.7rem; color: var(--text-primary); line-height: 1.6;">
                         <strong style="color: var(--success);">ALL</strong> → SPY 500 (~500 stocks)<br>
                         <strong style="color: var(--warning);">CAP</strong> → Large Cap Focus (~280 stocks)<br>
-                        <strong style="color: var(--accent);">FULL</strong> → Extended Sectors (~300 stocks)
+                        <strong style="color: var(--accent);">FULL</strong> → Extended Sectors (~300 stocks)<br>
+                        <strong style="color: #f472b6;">SPY500</strong> → Stocks by Volume (API)<br>
+                        <strong style="color: #00d752;">NASDAQ500</strong> → Stocks by Volume (API)<br>
+                        <strong style="color: #a78bfa;">1000</strong> → Stocks by Volume (API)
                     </div>
                 </div>
             </div>
@@ -950,6 +1079,17 @@
                     <option value="total_return">Total Return</option>
                     <option value="win_rate">Win Rate</option>
                 </select>
+            </div>
+
+            <div class="form-group">
+                <label>📊 API Historic Data Source</label>
+                <select id="data-source">
+                    <option value="alpaca">Alpaca API</option>
+                    <option value="widesurf">Widesurf API</option>
+                </select>
+                <small style="color: var(--text-secondary); font-size: 0.7rem; margin-top: 0.25rem; display: block;">
+                    Select the data provider for historical price data
+                </small>
             </div>
 
             <div class="form-group"
@@ -1003,7 +1143,7 @@
                 style="display: none; background: var(--card-bg); border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem;">
                 <h3 style="color: var(--accent); margin-bottom: 1rem;">🔬 API Price Comparison Tool</h3>
                 <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">Compare price data
-                    from Alpaca and Polygon APIs for a specific stock and date.</p>
+                    from Alpaca, Widesurf, and Massive.com APIs for a specific stock and date.</p>
 
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1rem;">
                     <div>
@@ -1030,69 +1170,102 @@
                 </button>
 
                 <div id="api-test-results" style="display: none;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
                         <!-- Alpaca Results -->
                         <div
-                            style="background: rgba(0,200,100,0.1); border: 1px solid var(--success); border-radius: 8px; padding: 1rem;">
-                            <h4 style="color: var(--success); margin-bottom: 0.75rem;">📈 Alpaca Data</h4>
-                            <div id="alpaca-results" style="font-size: 0.85rem;">
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem;">
-                                    <span style="color: var(--text-secondary);">Open (9:30 AM):</span>
+                            style="background: rgba(0,200,100,0.1); border: 1px solid var(--success); border-radius: 8px; padding: 0.75rem;">
+                            <h4 style="color: var(--success); margin-bottom: 0.5rem; font-size: 0.9rem;">📈 Alpaca</h4>
+                            <div id="alpaca-results" style="font-size: 0.75rem;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem;">
+                                    <span style="color: var(--text-secondary);">Open:</span>
                                     <span id="alpaca-open" style="font-weight: bold;">--</span>
 
-                                    <span style="color: var(--text-secondary);">User Time Price:</span>
+                                    <span style="color: var(--text-secondary);">User Price:</span>
                                     <span id="alpaca-user-price" style="font-weight: bold; color: #22c55e;">--</span>
 
-                                    <span style="color: var(--text-secondary);">Close (4:00 PM):</span>
+                                    <span style="color: var(--text-secondary);">Close:</span>
                                     <span id="alpaca-close" style="font-weight: bold;">--</span>
 
-                                    <span style="color: var(--text-secondary);">Volume (Daily):</span>
+                                    <span style="color: var(--text-secondary);">Vol (Daily):</span>
                                     <span id="alpaca-volume-daily">--</span>
 
-                                    <span style="color: var(--text-secondary);">Volume (to time):</span>
+                                    <span style="color: var(--text-secondary);">Vol (to time):</span>
                                     <span id="alpaca-volume-time">--</span>
 
-                                    <span style="color: #a78bfa; font-weight: bold;">VWAP (9:30→time):</span>
+                                    <span style="color: #a78bfa; font-weight: bold;">VWAP:</span>
                                     <span id="alpaca-vwap-time" style="color: #a78bfa; font-weight: bold;">--</span>
 
-                                    <span style="color: var(--text-secondary);">VWAP (Daily):</span>
+                                    <span style="color: var(--text-secondary);">VWAP Daily:</span>
                                     <span id="alpaca-vwap-daily">--</span>
 
-                                    <span style="color: var(--text-secondary);">Bars Used:</span>
+                                    <span style="color: var(--text-secondary);">Bars:</span>
                                     <span id="alpaca-bars-count">--</span>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Polygon Results (real Polygon.io API data) -->
+                        <!-- Widesurf Results -->
                         <div
-                            style="background: rgba(167,139,250,0.1); border: 1px solid #a78bfa; border-radius: 8px; padding: 1rem;">
-                            <h4 style="color: #a78bfa; margin-bottom: 0.75rem;">🔷 Polygon Data</h4>
-                            <div id="polygon-results" style="font-size: 0.85rem;">
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem;">
-                                    <span style="color: var(--text-secondary);">Open (9:30 AM):</span>
-                                    <span id="polygon-open" style="font-weight: bold;">--</span>
+                            style="background: rgba(167,139,250,0.1); border: 1px solid #a78bfa; border-radius: 8px; padding: 0.75rem;">
+                            <h4 style="color: #a78bfa; margin-bottom: 0.5rem; font-size: 0.9rem;">🔷 Widesurf</h4>
+                            <div id="widesurf-results" style="font-size: 0.75rem;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem;">
+                                    <span style="color: var(--text-secondary);">Open:</span>
+                                    <span id="widesurf-open" style="font-weight: bold;">--</span>
 
-                                    <span style="color: var(--text-secondary);">User Time Price:</span>
-                                    <span id="polygon-user-price" style="font-weight: bold; color: #a78bfa;">--</span>
+                                    <span style="color: var(--text-secondary);">User Price:</span>
+                                    <span id="widesurf-user-price" style="font-weight: bold; color: #a78bfa;">--</span>
 
-                                    <span style="color: var(--text-secondary);">Close (4:00 PM):</span>
-                                    <span id="polygon-close" style="font-weight: bold;">--</span>
+                                    <span style="color: var(--text-secondary);">Close:</span>
+                                    <span id="widesurf-close" style="font-weight: bold;">--</span>
 
-                                    <span style="color: var(--text-secondary);">Volume (Daily):</span>
-                                    <span id="polygon-volume-daily">--</span>
+                                    <span style="color: var(--text-secondary);">Vol (Daily):</span>
+                                    <span id="widesurf-volume-daily">--</span>
 
-                                    <span style="color: var(--text-secondary);">Volume (to time):</span>
-                                    <span id="polygon-volume-time">--</span>
+                                    <span style="color: var(--text-secondary);">Vol (to time):</span>
+                                    <span id="widesurf-volume-time">--</span>
 
-                                    <span style="color: #a78bfa; font-weight: bold;">VWAP (9:30→time):</span>
-                                    <span id="polygon-vwap-time" style="color: #a78bfa; font-weight: bold;">--</span>
+                                    <span style="color: #a78bfa; font-weight: bold;">VWAP:</span>
+                                    <span id="widesurf-vwap-time" style="color: #a78bfa; font-weight: bold;">--</span>
 
-                                    <span style="color: var(--text-secondary);">VWAP (Daily):</span>
-                                    <span id="polygon-vwap-daily">--</span>
+                                    <span style="color: var(--text-secondary);">VWAP Daily:</span>
+                                    <span id="widesurf-vwap-daily">--</span>
 
-                                    <span style="color: var(--text-secondary);">Bars Used:</span>
-                                    <span id="polygon-bars-count">--</span>
+                                    <span style="color: var(--text-secondary);">Bars:</span>
+                                    <span id="widesurf-bars-count">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Massive.com Results -->
+                        <div
+                            style="background: rgba(255,165,0,0.1); border: 1px solid #ffa500; border-radius: 8px; padding: 0.75rem;">
+                            <h4 style="color: #ffa500; margin-bottom: 0.5rem; font-size: 0.9rem;">🟠 Massive.com</h4>
+                            <div id="massive-results" style="font-size: 0.75rem;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem;">
+                                    <span style="color: var(--text-secondary);">Open:</span>
+                                    <span id="massive-open" style="font-weight: bold;">--</span>
+
+                                    <span style="color: var(--text-secondary);">User Price:</span>
+                                    <span id="massive-user-price" style="font-weight: bold; color: #ffa500;">--</span>
+
+                                    <span style="color: var(--text-secondary);">Close:</span>
+                                    <span id="massive-close" style="font-weight: bold;">--</span>
+
+                                    <span style="color: var(--text-secondary);">Vol (Daily):</span>
+                                    <span id="massive-volume-daily">--</span>
+
+                                    <span style="color: var(--text-secondary);">Vol (to time):</span>
+                                    <span id="massive-volume-time">--</span>
+
+                                    <span style="color: #ffa500; font-weight: bold;">VWAP:</span>
+                                    <span id="massive-vwap-time" style="color: #ffa500; font-weight: bold;">--</span>
+
+                                    <span style="color: var(--text-secondary);">VWAP Daily:</span>
+                                    <span id="massive-vwap-daily">--</span>
+
+                                    <span style="color: var(--text-secondary);">Bars:</span>
+                                    <span id="massive-bars-count">--</span>
                                 </div>
                             </div>
                         </div>
@@ -1232,7 +1405,7 @@
         // Check if symbol data is cached in database
         async function clearPriceCache() {
             const input = document.getElementById('symbols').value.trim().toUpperCase();
-            const symbols = input.split(',').map(s => s.trim()).filter(s => s && !['ALL', 'CAP', 'FULL'].includes(s));
+            const symbols = input.split(',').map(s => s.trim()).filter(s => s && !['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000'].includes(s));
 
             if (symbols.length === 0) {
                 log('No symbols to clear cache for', 'warning');
@@ -1270,7 +1443,7 @@
             const cacheInfo = document.getElementById('cache-info');
 
             // Skip keywords
-            if (['ALL', 'CAP', 'FULL'].includes(input)) {
+            if (['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000'].includes(input)) {
                 indicator.className = 'db-cache-icon no-cache';
                 cacheInfo.style.display = 'none';
                 return;
@@ -1412,19 +1585,31 @@
                     document.getElementById('alpaca-bars-count').textContent = data.alpaca.bars_used_for_vwap || 'N/A';
                 }
 
-                // Populate Polygon/Summary results (same data)
-                if (data.polygon) {
-                    document.getElementById('polygon-open').textContent = data.polygon.open_price ? `$${data.polygon.open_price.toFixed(2)}` : 'N/A';
-                    document.getElementById('polygon-user-price').textContent = data.polygon.user_price ? `$${data.polygon.user_price.toFixed(2)} @ ${data.polygon.user_time}` : 'N/A';
-                    document.getElementById('polygon-close').textContent = data.polygon.close_price ? `$${data.polygon.close_price.toFixed(2)}` : 'N/A';
-                    document.getElementById('polygon-volume-daily').textContent = data.polygon.volume_daily ? data.polygon.volume_daily.toLocaleString() : 'N/A';
-                    document.getElementById('polygon-volume-time').textContent = data.polygon.volume_to_time ? data.polygon.volume_to_time.toLocaleString() : 'N/A';
-                    document.getElementById('polygon-vwap-time').textContent = data.polygon.vwap_to_time ? `$${data.polygon.vwap_to_time.toFixed(4)}` : 'N/A';
-                    document.getElementById('polygon-vwap-daily').textContent = data.polygon.vwap_daily ? `$${data.polygon.vwap_daily.toFixed(4)}` : 'N/A';
-                    document.getElementById('polygon-bars-count').textContent = data.polygon.bars_used_for_vwap || 'N/A';
+                // Populate Widesurf results
+                if (data.widesurf) {
+                    document.getElementById('widesurf-open').textContent = data.widesurf.open_price ? `$${data.widesurf.open_price.toFixed(2)}` : 'N/A';
+                    document.getElementById('widesurf-user-price').textContent = data.widesurf.user_price ? `$${data.widesurf.user_price.toFixed(2)} @ ${data.widesurf.user_time}` : 'N/A';
+                    document.getElementById('widesurf-close').textContent = data.widesurf.close_price ? `$${data.widesurf.close_price.toFixed(2)}` : 'N/A';
+                    document.getElementById('widesurf-volume-daily').textContent = data.widesurf.volume_daily ? data.widesurf.volume_daily.toLocaleString() : 'N/A';
+                    document.getElementById('widesurf-volume-time').textContent = data.widesurf.volume_to_time ? data.widesurf.volume_to_time.toLocaleString() : 'N/A';
+                    document.getElementById('widesurf-vwap-time').textContent = data.widesurf.vwap_to_time ? `$${data.widesurf.vwap_to_time.toFixed(4)}` : 'N/A';
+                    document.getElementById('widesurf-vwap-daily').textContent = data.widesurf.vwap_daily ? `$${data.widesurf.vwap_daily.toFixed(4)}` : 'N/A';
+                    document.getElementById('widesurf-bars-count').textContent = data.widesurf.bars_used_for_vwap || 'N/A';
                 }
 
-                // No comparison needed - same data source
+                // Populate Massive.com results
+                if (data.massive) {
+                    document.getElementById('massive-open').textContent = data.massive.open_price ? `$${data.massive.open_price.toFixed(2)}` : 'N/A';
+                    document.getElementById('massive-user-price').textContent = data.massive.user_price ? `$${data.massive.user_price.toFixed(2)} @ ${data.massive.user_time}` : 'N/A';
+                    document.getElementById('massive-close').textContent = data.massive.close_price ? `$${data.massive.close_price.toFixed(2)}` : 'N/A';
+                    document.getElementById('massive-volume-daily').textContent = data.massive.volume_daily ? data.massive.volume_daily.toLocaleString() : 'N/A';
+                    document.getElementById('massive-volume-time').textContent = data.massive.volume_to_time ? data.massive.volume_to_time.toLocaleString() : 'N/A';
+                    document.getElementById('massive-vwap-time').textContent = data.massive.vwap_to_time ? `$${data.massive.vwap_to_time.toFixed(4)}` : 'N/A';
+                    document.getElementById('massive-vwap-daily').textContent = data.massive.vwap_daily ? `$${data.massive.vwap_daily.toFixed(4)}` : 'N/A';
+                    document.getElementById('massive-bars-count').textContent = data.massive.bars_used_for_vwap || 'N/A';
+                }
+
+                // Comparison summary
                 const comparisonHtml = `
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
                         <span>User Time:</span><span style="color: var(--success); font-weight: bold;">${time}</span>
@@ -1481,7 +1666,24 @@
             const v = result.volatility_profile || {};
             const m = result.metrics || {};
             const p = result.best_params || {};
-            const tradeLog = result.trade_log || [];
+
+            // Ensure trade_log is an array
+            let tradeLog = result.trade_log || [];
+            if (!Array.isArray(tradeLog)) {
+                console.warn('tradeLog is not an array, converting:', typeof tradeLog);
+                try {
+                    if (typeof tradeLog === 'string') {
+                        tradeLog = JSON.parse(tradeLog);
+                    } else {
+                        tradeLog = [];
+                    }
+                } catch (e) {
+                    console.error('Failed to parse trade_log:', e);
+                    tradeLog = [];
+                }
+            }
+
+            console.log('updateAnalysisView - tradeLog length:', tradeLog.length, 'algo:', result.algo);
 
             // Store for sorting
             currentTradeLog = tradeLog.map((t, i) => ({ ...t, day: i + 1 }));
@@ -1491,41 +1693,258 @@
                 metrics: m,
                 start_date: result.start_date,
                 end_date: result.end_date,
-                algo: result.algo || 'default'
+                algo: result.algo || 'default',
+                data_source: result.data_source || 'alpaca'
             };
             tradeLogSortColumn = 'day';
             tradeLogSortAsc = true;
 
+            console.log('Rendering analysis view with tradeLog length:', currentTradeLog.length);
             renderAnalysisView();
         }
 
+        // Store current trade metadata for the explanation panel
+        let currentTradeParams = {};
+        let currentAlgoFlags = { isVWAP: false, isChatGPT: false, isStopLoss: false };
+
+        // Show trade explanation panel when clicking on a row
+        function showTradeExplanation(tradeIndex) {
+            const t = currentTradeLog[tradeIndex];
+            if (!t) return;
+
+            const p = currentTradeParams;
+            const { isVWAP, isChatGPT, isStopLoss } = currentAlgoFlags;
+
+            // Remove previous selection
+            document.querySelectorAll('.trade-row.selected').forEach(row => row.classList.remove('selected'));
+
+            // Highlight selected row
+            const selectedRow = document.querySelector(`[data-trade-index="${tradeIndex}"]`);
+            if (selectedRow) selectedRow.classList.add('selected');
+
+            const date = t.date ? t.date.substring(0, 10) : 'Unknown';
+            const open = t.open?.toFixed(2) || 'N/A';
+            const price10am = t.price_10am?.toFixed(2) || 'N/A';
+            const vwap = t.vwap?.toFixed(2) || 'N/A';
+            const close = t.close?.toFixed(2) || 'N/A';
+            const sellTrigger = p.sell_trigger_pct || 'N/A';
+
+            const pctFrom10amToOpen = t.open > 0 && t.price_10am ? (((t.price_10am - t.open) / t.open) * 100).toFixed(2) : '0';
+
+            let html = `<div class="trade-explanation-panel">`;
+            html += `<div class="explanation-title">
+                <span>📅 ${date} — ${t.bought ? '✅ Trade Executed' : '❌ Trade Skipped'}</span>
+                <button class="explanation-close" onclick="closeTradeExplanation()">✕</button>
+            </div>`;
+
+            if (isVWAP) {
+                // VWAP Strategy Explanation
+                html += `<div class="explanation-section">`;
+                html += `<div class="explanation-section-title">📊 Market Snapshot at 10:00 AM</div>`;
+                html += `<div style="color: #e2e8f0; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;">`;
+                html += `• The stock <b>opened</b> the day at <b>$${open}</b><br>`;
+                html += `• By <b>10:00 AM</b>, the price moved to <b>$${price10am}</b> — that's <b>${pctFrom10amToOpen >= 0 ? '+' : ''}${pctFrom10amToOpen}%</b> from open<br>`;
+                html += `• The <b>VWAP</b> (Volume Weighted Average Price = the "fair" price where most volume traded) was <b>$${vwap}</b>`;
+                html += `</div></div>`;
+
+                html += `<div class="explanation-section">`;
+                html += `<div class="explanation-section-title">🎯 Entry Conditions Checked (ALL must pass)</div>`;
+
+                const priceAboveVwap = t.price_10am > t.vwap && t.vwap > 0;
+                const skipReason = t.skip_reason || '';
+
+                const c1Pass = priceAboveVwap;
+                html += `<div class="explanation-check ${c1Pass ? 'pass' : 'fail'}">`;
+                html += `<span style="font-size: 1.1rem;">${c1Pass ? '✓' : '✗'}</span>`;
+                html += `<div><b>Price > VWAP:</b> Is $${price10am} above $${vwap}?<br>`;
+                html += c1Pass ? `<i>YES! The stock is trading above its average price — signs of strength.</i>` : `<i>NO. The stock is trading below average — too weak to buy.</i>`;
+                html += `</div></div>`;
+
+                const c2Pass = !skipReason.includes('slope');
+                html += `<div class="explanation-check ${c2Pass ? 'pass' : 'fail'}">`;
+                html += `<span style="font-size: 1.1rem;">${c2Pass ? '✓' : '✗'}</span>`;
+                html += `<div><b>VWAP Trending Up (Slope > 0):</b><br>`;
+                html += c2Pass ? `<i>YES! VWAP is rising between 9:40-10AM — buyers are in control.</i>` : `<i>NO. VWAP is falling — sellers are dominating, skip this trade.</i>`;
+                html += `</div></div>`;
+
+                const c3Pass = !skipReason.includes('stretch');
+                html += `<div class="explanation-check ${c3Pass ? 'pass' : 'fail'}">`;
+                html += `<span style="font-size: 1.1rem;">${c3Pass ? '✓' : '✗'}</span>`;
+                html += `<div><b>Price Not Overextended (Stretch < 0.5×Volatility):</b><br>`;
+                html += c3Pass ? `<i>YES! Price is close enough to VWAP — safe entry point.</i>` : `<i>NO. Price has run up too far above VWAP — chasing would be risky.</i>`;
+                html += `</div></div>`;
+
+                const c4Pass = !skipReason.includes('mom');
+                html += `<div class="explanation-check ${c4Pass ? 'pass' : 'fail'}">`;
+                html += `<span style="font-size: 1.1rem;">${c4Pass ? '✓' : '✗'}</span>`;
+                html += `<div><b>Enough Momentum (Mom > 0.25×Volatility):</b><br>`;
+                html += c4Pass ? `<i>YES! Stock has solid upward momentum from open — good entry.</i>` : `<i>NO. Not enough buying pressure yet — wait for more momentum.</i>`;
+                html += `</div></div>`;
+                html += `</div>`;
+
+                // Result section
+                if (t.bought) {
+                    const tpPrice = t.sell_price?.toFixed(2) || 'N/A';
+                    const slPrice = t.stop_loss?.toFixed(2) || open;
+                    const profitPct = t.buy_price > 0 ? (((t.actual_sell || t.close) - t.buy_price) / t.buy_price * 100).toFixed(2) : '0';
+
+                    html += `<div class="explanation-result ${t.profit >= 0 ? 'win' : 'loss'}">`;
+                    html += `<b>✅ ALL 4 CONDITIONS PASSED → BOUGHT at $${price10am}</b><br><br>`;
+                    html += `<b>Exit Plan:</b><br>`;
+                    html += `• Take Profit (TP): Sell at $${tpPrice} (+${sellTrigger}% profit)<br>`;
+                    html += `• Stop Loss (SL): Sell at $${slPrice} (day's open price — protection)<br><br>`;
+
+                    if (t.exit_reason === 'TP') {
+                        html += `<b>🎉 OUTCOME: WON!</b> Price hit our take profit target at $${tpPrice}.<br>`;
+                    } else {
+                        html += `<b>📊 OUTCOME:</b> Closed position at $${t.actual_sell?.toFixed(2) || close} at end of day.<br>`;
+                    }
+                    html += `<b>Profit: ${t.profit >= 0 ? '+' : ''}$${t.profit?.toFixed(0) || 0}</b> (${profitPct >= 0 ? '+' : ''}${profitPct}% return)`;
+                    html += `</div>`;
+                } else {
+                    html += `<div class="explanation-result skip">`;
+                    html += `<b>❌ TRADE SKIPPED — ${t.skip_reason || 'Conditions not met'}</b><br><br>`;
+                    html += `<span style="color: #cbd5e1;">The algorithm did NOT buy because one or more entry conditions failed. `;
+                    if (skipReason.includes('VWAP')) {
+                        html += `The price was below the average trading price, suggesting the stock was weak.`;
+                    } else if (skipReason.includes('slope')) {
+                        html += `The VWAP was trending downward, indicating sellers were in control.`;
+                    } else if (skipReason.includes('stretch')) {
+                        html += `The price had already run up too far from VWAP — buying now would mean chasing.`;
+                    } else if (skipReason.includes('mom')) {
+                        html += `There wasn't enough upward momentum from the open to justify entry.`;
+                    }
+                    html += `</span></div>`;
+                }
+
+            } else if (isChatGPT) {
+                const buyTrigger = p.buy_trigger_pct || 'N/A';
+                const entryThreshold = t.open > 0 ? (t.open * (1 + buyTrigger / 100)).toFixed(2) : 'N/A';
+
+                html += `<div class="explanation-section">`;
+                html += `<div class="explanation-section-title">📊 Market Snapshot</div>`;
+                html += `<div style="color: #e2e8f0; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;">`;
+                html += `• Stock opened at <b>$${open}</b><br>`;
+                html += `• By 10 AM, price was <b>$${price10am}</b> (${pctFrom10amToOpen >= 0 ? '+' : ''}${pctFrom10amToOpen}% from open)`;
+                html += `</div></div>`;
+
+                html += `<div class="explanation-section">`;
+                html += `<div class="explanation-section-title">🎯 Entry Condition</div>`;
+                const entryMet = t.price_10am >= t.open * (1 + buyTrigger / 100);
+                html += `<div class="explanation-check ${entryMet ? 'pass' : 'fail'}">`;
+                html += `<span style="font-size: 1.1rem;">${entryMet ? '✓' : '✗'}</span>`;
+                html += `<div><b>10AM Price ≥ +${buyTrigger}% above Open:</b><br>`;
+                html += `Is $${price10am} ≥ $${entryThreshold}? `;
+                html += entryMet ? `<i>YES! Momentum confirmed — buy signal triggered.</i>` : `<i>NO. Price didn't rise enough — no entry.</i>`;
+                html += `</div></div></div>`;
+
+                if (t.bought) {
+                    html += `<div class="explanation-result ${t.profit >= 0 ? 'win' : 'loss'}">`;
+                    html += `<b>✅ BOUGHT at $${price10am}</b> (10AM price)<br><br>`;
+                    html += `<b>Exit Target:</b> Sell at +${sellTrigger}% from open ($${(t.open * (1 + sellTrigger / 100)).toFixed(2)})<br><br>`;
+                    html += `<b>Result:</b> ${t.sold_at_target ? '🎉 Hit target!' : 'Closed at end of day'} — `;
+                    html += `<b>${t.profit >= 0 ? '+' : ''}$${t.profit?.toFixed(0) || 0}</b>`;
+                    html += `</div>`;
+                } else {
+                    html += `<div class="explanation-result skip">`;
+                    html += `<b>❌ SKIPPED</b> — Price didn't rise enough by 10AM to trigger entry.`;
+                    html += `</div>`;
+                }
+
+            } else {
+                const buyTrigger = p.buy_trigger_pct || 'N/A';
+                const prevClose = t.prev_close?.toFixed(2) || 'N/A';
+
+                html += `<div class="explanation-section">`;
+                html += `<div class="explanation-section-title">📊 Market Snapshot</div>`;
+                html += `<div style="color: #e2e8f0; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;">`;
+                html += `• Previous day closed at <b>$${prevClose}</b><br>`;
+                html += `• Today's high reached <b>$${t.high?.toFixed(2) || 'N/A'}</b>`;
+                html += `</div></div>`;
+
+                html += `<div class="explanation-section">`;
+                html += `<div class="explanation-section-title">🎯 Entry Condition</div>`;
+                html += `<div class="explanation-check ${t.bought ? 'pass' : 'fail'}">`;
+                html += `<span style="font-size: 1.1rem;">${t.bought ? '✓' : '✗'}</span>`;
+                html += `<div><b>Breakout:</b> Did price break +${buyTrigger}% above previous close?<br>`;
+                html += t.bought ? `<i>YES! Breakout confirmed.</i>` : `<i>NO. Price didn't break out.</i>`;
+                html += `</div></div></div>`;
+
+                if (t.bought) {
+                    html += `<div class="explanation-result ${t.profit >= 0 ? 'win' : 'loss'}">`;
+                    html += `<b>✅ BOUGHT on breakout</b><br>`;
+                    html += `<b>Result:</b> <b>${t.profit >= 0 ? '+' : ''}$${t.profit?.toFixed(0) || 0}</b>`;
+                    html += `</div>`;
+                } else {
+                    html += `<div class="explanation-result skip">`;
+                    html += `<b>❌ SKIPPED</b> — No breakout detected.`;
+                    html += `</div>`;
+                }
+            }
+
+            html += `</div>`;
+
+            // Insert into the panel container
+            const panelContainer = document.getElementById('trade-explanation-container');
+            if (panelContainer) {
+                panelContainer.innerHTML = html;
+            }
+        }
+
+        function closeTradeExplanation() {
+            const panelContainer = document.getElementById('trade-explanation-container');
+            if (panelContainer) {
+                panelContainer.innerHTML = '';
+            }
+            document.querySelectorAll('.trade-row.selected').forEach(row => row.classList.remove('selected'));
+        }
+
+
         function renderAnalysisView() {
             const container = document.getElementById('analysis');
+            if (!container) {
+                console.error('Analysis container not found!');
+                return;
+            }
             const p = currentTradeLogMeta.params || {};
             const m = currentTradeLogMeta.metrics || {};
-            const tradeLog = currentTradeLog;
+            const tradeLog = currentTradeLog || [];
             const startDate = currentTradeLogMeta.start_date || '';
             const endDate = currentTradeLogMeta.end_date || '';
             const dateRange = (startDate && endDate) ? `${startDate} → ${endDate}` : '';
 
+            // Check algorithm type - define OUTSIDE the if block so it's available everywhere
+            const isChatGPT = tradeLog && tradeLog.length > 0 ? tradeLog.some(t => t.algo === 'chatgpt' || t.algo === 'chatgpt_stoploss' || t.algo === 'chatgpt_vwap' || t.price_10am != null) : (currentTradeLogMeta.algo === 'chatgpt' || currentTradeLogMeta.algo === 'chatgpt_stoploss' || currentTradeLogMeta.algo === 'chatgpt_vwap');
+            const isStopLoss = tradeLog && tradeLog.length > 0 ? tradeLog.some(t => t.algo === 'chatgpt_stoploss' || t.algo === 'chatgpt_vwap' || t.exit_reason != null) : (currentTradeLogMeta.algo === 'chatgpt_stoploss' || currentTradeLogMeta.algo === 'chatgpt_vwap');
+            const isVWAP = tradeLog && tradeLog.length > 0 ? tradeLog.some(t => t.algo === 'chatgpt_vwap' || t.vwap != null) : (currentTradeLogMeta.algo === 'chatgpt_vwap');
+            const isDipper = tradeLog && tradeLog.length > 0 ? tradeLog.some(t => t.algo === 'default' || t.prev_close != null) : (currentTradeLogMeta.algo === 'default' || !currentTradeLogMeta.algo);
+
+            // Store params and flags for the explanation panel click handler
+            currentTradeParams = p;
+            currentAlgoFlags = { isVWAP, isChatGPT, isStopLoss, isDipper };
+
             // Build trade log table HTML
             let tradeLogHtml = '';
-            if (tradeLog.length > 0) {
+            console.log('renderAnalysisView - tradeLog:', tradeLog, 'length:', tradeLog ? tradeLog.length : 0, 'isVWAP:', isVWAP, 'algo:', currentTradeLogMeta.algo);
+            if (tradeLog && tradeLog.length > 0) {
                 const sortIcon = (col) => tradeLogSortColumn === col ? (tradeLogSortAsc ? ' ▲' : ' ▼') : '';
                 const thStyle = 'padding: 6px 8px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap;';
                 const tdStyle = 'padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.05);';
 
-                // Check if this is ChatGPT algo (has price_10am data)
-                const isChatGPT = tradeLog.some(t => t.algo === 'chatgpt' || t.algo === 'chatgpt_stoploss' || t.algo === 'chatgpt_vwap' || t.price_10am != null);
-                const isStopLoss = tradeLog.some(t => t.algo === 'chatgpt_stoploss' || t.algo === 'chatgpt_vwap' || t.exit_reason != null);
-                const isVWAP = tradeLog.some(t => t.algo === 'chatgpt_vwap' || t.vwap != null);
-                const isDipper = tradeLog.some(t => t.algo === 'default' || t.prev_close != null);
-
                 tradeLogHtml = `
                     <div style="margin-top: 0.75rem;">
-                        <div style="color: var(--accent); font-weight: 600; font-size: 0.75rem; margin-bottom: 0.3rem;">
-                            📊 Trade Log with Buy/Sell Guidance <span style="color: var(--text-secondary); font-weight: 400; font-size: 0.65rem;">(${tradeLog.length} days) ${dateRange}</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem;">
+                            <div style="color: var(--accent); font-weight: 600; font-size: 0.75rem;">
+                                📊 Trade Log with Buy/Sell Guidance <span style="color: var(--text-secondary); font-weight: 400; font-size: 0.65rem;">(${tradeLog.length} days) ${dateRange}</span>
+                                <span style="color: #94a3b8; font-weight: 400; font-size: 0.55rem; margin-left: 8px;">👆 Click any row to see detailed explanation</span>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem; font-size: 0.6rem;">
+                                <span style="background: ${currentTradeLogMeta.data_source === 'widesurf' ? '#a78bfa' : currentTradeLogMeta.data_source === 'massive' ? '#ffa500' : '#22c55e'}; color: white; padding: 2px 6px; border-radius: 4px; font-weight: 600;">
+                                    📡 ${currentTradeLogMeta.data_source === 'widesurf' ? 'Widesurf API' : currentTradeLogMeta.data_source === 'massive' ? 'Massive.com' : 'Alpaca API'}
+                                </span>
+                            </div>
                         </div>
+                        <div id="trade-explanation-container"></div>
                         <div style="max-height: 800px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px;">
                             <table id="trade-log-table" style="width: 100%; font-size: 0.65rem; border-collapse: collapse;">
                                 <thead style="background: var(--bg-card); position: sticky; top: 0; z-index: 1;">
@@ -1549,8 +1968,8 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${tradeLog.map((t) => `
-                                        <tr style="background: ${t.bought ? (t.sold_at_target ? 'rgba(0,200,100,0.15)' : 'rgba(0,200,100,0.08)') : 'transparent'};">
+                                    ${tradeLog.map((t, index) => `
+                                        <tr class="trade-row" data-trade-index="${index}" onclick="showTradeExplanation(${index})" style="background: ${t.bought ? (t.sold_at_target ? 'rgba(0,200,100,0.15)' : 'rgba(0,200,100,0.08)') : 'transparent'};">
                                             <td style="${tdStyle} color: var(--text-secondary);">${t.date ? t.date.substring(0, 10) : ''}</td>
                                             <td style="${tdStyle} text-align: center;">${t.bought ? '✅' : '❌'}</td>
                                             <td style="${tdStyle} text-align: right;">$${t.open?.toFixed(2) || 'N/A'}</td>
@@ -1565,7 +1984,21 @@
                                             ${isStopLoss ? `<td style="${tdStyle} text-align: right; color: var(--danger); font-size: 0.6rem;">${t.bought && t.stop_loss ? '$' + t.stop_loss.toFixed(2) : '—'}</td>` : ''}
                                             <td style="${tdStyle} text-align: right; color: ${t.sold_at_target ? 'var(--success)' : 'var(--text-secondary)'};">${t.bought ? (t.sold_at_target ? '$' + t.sell_price?.toFixed(2) + ' ✓' : '$' + (t.actual_sell?.toFixed(2) || t.close?.toFixed(2))) : '—'}</td>
                                             ${isStopLoss ? `<td style="${tdStyle} text-align: center; font-size: 0.6rem; font-weight: 600; color: ${t.exit_reason === 'TP' ? 'var(--success)' : t.exit_reason === 'SL' ? 'var(--danger)' : t.exit_reason === 'TRAIL' ? 'var(--accent)' : 'var(--text-secondary)'};">${t.exit_reason || '—'}</td>` : ''}
-                                            <td style="${tdStyle} text-align: right; color: ${(t.profit || 0) >= 0 ? 'var(--success)' : 'var(--danger)'};">${t.bought ? ((t.profit || 0) >= 0 ? '+' : '') + '$' + (t.profit?.toFixed(0) || 0) : '—'}</td>
+                                            <td style="${tdStyle} text-align: right; ${t.bought ? 'color: ' + ((t.profit || 0) >= 0 ? 'var(--success)' : 'var(--danger)') : 'color: #6b7280; opacity: 0.6;'};">
+                                                ${t.bought
+                        ? ((t.profit || 0) >= 0 ? '+' : '') + '$' + (t.profit?.toFixed(0) || 0)
+                        : (() => {
+                            // Calculate potential profit when not bought
+                            const buyPrice = t.price_10am || t.open;
+                            const sellPrice = t.sold_at_target ? t.sell_price : t.close;
+                            if (buyPrice && sellPrice && buyPrice > 0) {
+                                const potentialProfit = ((sellPrice - buyPrice) / buyPrice) * 100;
+                                return (potentialProfit >= 0 ? '+' : '') + potentialProfit.toFixed(1) + '%';
+                            }
+                            return '—';
+                        })()
+                    }
+                                            </td>
                                             <td style="${tdStyle} text-align: right; font-weight: 500;">$${t.equity?.toLocaleString() || 'N/A'}</td>
                                         </tr>
                                     `).join('')}
@@ -1575,9 +2008,19 @@
                     </div>
                 `;
             } else {
+                console.warn('No trade log data available. tradeLog length:', tradeLog.length, 'tradeLog:', tradeLog);
                 tradeLogHtml = `
-                    <div style="margin-top: 0.75rem; color: var(--text-secondary); font-size: 0.65rem; font-style: italic;">
-                        Trade log not available for this run
+                    <div style="margin-top: 0.75rem; padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #ef4444;">
+                        <div style="color: #ef4444; font-weight: 600; margin-bottom: 0.5rem;">⚠️ Trade log not available</div>
+                        <div style="color: var(--text-secondary); font-size: 0.65rem;">
+                            Trade log data is missing for this run. This may happen if:<br>
+                            • The optimization was run before trade log generation was implemented<br>
+                            • The trade log failed to save to the database<br>
+                            • The data format is incompatible
+                        </div>
+                        <div style="margin-top: 0.5rem; font-size: 0.6rem; color: var(--text-secondary); font-family: monospace;">
+                            Debug: tradeLog type=${typeof tradeLog}, length=${tradeLog ? tradeLog.length : 'null'}, algo=${currentTradeLogMeta.algo || 'N/A'}
+                        </div>
                     </div>
                 `;
             }
@@ -1951,7 +2394,7 @@
                         ${setIcon}
                         ${dbIcon}
                     </div>
-                    <div class="history-item-content" onclick="showHistoryDetail(${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                    <div class="history-item-content" onclick="showHistoryDetailById(${item.id})">
                         <div class="history-symbol">${item.symbol}${algoBadge}</div>
                         <div class="history-date">${formatDate(item.created_at)}</div>
                         <div class="history-score">
@@ -2053,8 +2496,33 @@
             return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
 
+        // Show history detail by ID (uses local cache first for fast loading)
+        async function showHistoryDetailById(id) {
+            try {
+                // First try to find in local historyData cache (fast)
+                let item = historyData.find(h => h.id === id);
+
+                if (!item) {
+                    // Fallback: fetch from API only if not in cache
+                    const resp = await fetch('/api/history');
+                    const freshData = await resp.json();
+                    item = freshData.find(h => h.id === id);
+                    if (!item) {
+                        log('History item not found', 'error');
+                        return;
+                    }
+                }
+
+                console.log('showHistoryDetailById - Found item, trade_log length:', item.trade_log ? item.trade_log.length : 0);
+                showHistoryDetail(item);
+            } catch (e) {
+                log(`Failed to load history item: ${e.message}`, 'error');
+            }
+        }
+
         // Show history detail in results panel
         function showHistoryDetail(item) {
+            console.log('showHistoryDetail called with item:', item.symbol, 'trade_log:', item.trade_log ? item.trade_log.length : 0);
             const container = document.getElementById('results');
             container.innerHTML = '';
 
@@ -2128,6 +2596,30 @@
             container.appendChild(card);
 
             // Update Analysis tab with this history item's data
+            // Ensure trade_log is an array
+            let tradeLog = item.trade_log || [];
+            console.log('showHistoryDetail - item.trade_log type:', typeof item.trade_log, 'isArray:', Array.isArray(tradeLog));
+
+            if (!Array.isArray(tradeLog)) {
+                console.log('trade_log is not an array, attempting to parse...');
+                try {
+                    if (typeof tradeLog === 'string') {
+                        tradeLog = JSON.parse(tradeLog);
+                    } else if (tradeLog && typeof tradeLog === 'object') {
+                        // Might be a dict/object, try to convert
+                        tradeLog = Object.values(tradeLog);
+                    } else {
+                        tradeLog = [];
+                    }
+                    console.log('Parsed trade_log, new length:', tradeLog.length);
+                } catch (e) {
+                    console.error('Failed to parse trade_log:', e, 'tradeLog:', tradeLog);
+                    tradeLog = [];
+                }
+            }
+
+            console.log('Calling updateAnalysisView with tradeLog length:', tradeLog.length, 'algo:', item.algo);
+
             updateAnalysisView({
                 symbol: item.symbol,
                 n_trials: item.n_trials,
@@ -2135,6 +2627,7 @@
                 duration_seconds: item.duration_seconds,
                 start_date: item.start_date,
                 end_date: item.end_date,
+                algo: item.algo || 'default',
                 best_params: {
                     buy_trigger_pct: item.buy_trigger_pct,
                     sell_trigger_pct: item.sell_trigger_pct,
@@ -2148,7 +2641,7 @@
                 metrics: {
                     win_rate: item.win_rate
                 },
-                trade_log: item.trade_log || []
+                trade_log: tradeLog
             });
             switchLogTab('analysis');
 
@@ -2528,6 +3021,31 @@
         // CAP Stock List - Large Cap Focus (blue chips + growth)
         const CAP_STOCK_LIST = 'AAPL,MSFT,NVDA,GOOGL,GOOG,AMZN,META,BRK.A,BRK.B,LLY,AVGO,TSLA,JPM,V,UNH,XOM,MA,JNJ,HD,COST,PG,ABBV,MRK,ORCL,CRM,KO,PEP,ADBE,WMT,NFLX,AMD,LIN,CSCO,ACN,MCD,TMO,INTU,DIS,NKE,ABT,CVX,TXN,AMGN,IBM,PM,UPS,LOW,NEE,RTX,MS,GS,SPGI,BLK,ISRG,QCOM,CAT,DE,SBUX,EL,PLD,MDT,AMAT,ADI,LMT,GE,AXP,CB,MMC,CI,MO,BDX,ZTS,ICE,DUK,SO,EQIX,SHW,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,ADP,PAYX,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,ROKU,SPOT,UBER,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,ALK,BA,GD,NOC,LHX,TDG,URI,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,RSG,AWK,PCAR,CUMM,ALB,FCX,NEM,AA,STLD,NUE,CE,LYB,DOW,EMN,APTV,F,ROK,KEYS,AME,IR,XYL,TT,WAB,EFX,MTB,HBAN,RF,TFC,CFG,STT,NTRS,BK,AMP,IVZ,DFS,SYF,COIN,MSTR,RIOT,MARA,CHTR,CMCSA,VZ,T,TMUS,ZS,OKTA,WDAY,NOW,SQ,PYPL,INTC,TSM,ASML,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,FSLR,PLUG,BLDP,CHPT,QS,ON,STM,NXPI,INFY,CTSH,EPAM,DXC,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,SMAR,PSTG,NTNX,VMW,LOGI,EA,TTWO,MTCH,BMBL,PLTR,AI,UPST,AFRM,SOFI,HOOD,CLS,ONTO,FORM,SMCI,GRMN,TRMB,IRDM,VSAT,ASTS,RKLB,JOBY,ACHR,PL,MAXR,SPCE'.split(',');
 
+        // Fetch stocks from Widesurf API via backend proxy (avoids CORS issues)
+        async function fetchWidesurfStocks(keyword) {
+            log(`📡 Fetching ${keyword} stocks from Widesurf API...`, 'info');
+
+            try {
+                // Use backend proxy to avoid CORS issues
+                const response = await fetch(`/api/widesurf/tickers/${keyword}`);
+                if (!response.ok) {
+                    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'API request failed');
+                }
+
+                log(`✅ Fetched ${data.count} stocks from Widesurf API`, 'success');
+                return data.stocks;
+            } catch (error) {
+                log(`❌ Failed to fetch ${keyword} stocks: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
         // Track active job IDs for cancellation
         let activeJobIds = [];
         let optimizationStopped = false;
@@ -2577,6 +3095,24 @@
             } else if (symbolsInput === 'CAP') {
                 symbols = CAP_STOCK_LIST;
                 log(`Expanding 'CAP' to ${symbols.length} large cap stocks...`, 'info');
+            } else if (['SPY500', 'NASDAQ500', '1000'].includes(symbolsInput)) {
+                // Fetch stocks from Widesurf API
+                try {
+                    document.getElementById('start-btn').disabled = true;
+                    document.getElementById('start-btn').textContent = 'Fetching stocks...';
+                    symbols = await fetchWidesurfStocks(symbolsInput);
+                    if (!symbols || symbols.length === 0) {
+                        log(`❌ No stocks returned from API for ${symbolsInput}`, 'error');
+                        document.getElementById('start-btn').disabled = false;
+                        document.getElementById('start-btn').textContent = 'Start Optimization';
+                        return;
+                    }
+                } catch (error) {
+                    log(`❌ Failed to fetch stocks for ${symbolsInput}: ${error.message}`, 'error');
+                    document.getElementById('start-btn').disabled = false;
+                    document.getElementById('start-btn').textContent = 'Start Optimization';
+                    return;
+                }
             } else {
                 symbols = symbolsInput.split(',').map(s => s.trim()).filter(s => s);
             }
@@ -2591,7 +3127,7 @@
             const timingApproach = document.getElementById('timing-approach').value;
 
             if (!symbols.length) {
-                log('Please enter at least one symbol, "ALL" for SPY 500, or "FULL" for extended list', 'error');
+                log('Please enter at least one symbol, "ALL" for SPY 500, "FULL" for extended list, or use API keywords (SPY500, NASDAQ500, 1000)', 'error');
                 return;
             }
 
@@ -2633,7 +3169,8 @@
                         use_gpu: useGpu,
                         smart_timing: smartTiming,
                         timing_approach: timingApproach,
-                        algo: algo
+                        algo: algo,
+                        data_source: document.getElementById('data-source').value
                     })
                 });
 

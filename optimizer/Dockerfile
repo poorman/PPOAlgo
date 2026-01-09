@@ -14,6 +14,13 @@ RUN pip install --no-cache-dir \
 
 # Copy application files
 COPY server.py /app/
+COPY config.py /app/
+COPY database.py /app/
+COPY models.py /app/
+COPY stock_optimizer.py /app/
+COPY routers /app/routers/
+COPY services /app/services/
+COPY algos /app/algos/
 COPY static /app/static/
 
 # Create results directory

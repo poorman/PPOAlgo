@@ -19,8 +19,13 @@ DB_CONFIG = {
     "port": int(os.getenv("POSTGRES_PORT", "5432")),
 }
 
-# Polygon API key (fallback if not in environment)
-POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "vQtz66lpyexhpplKWhLL7rOXdfnClQsh")
+# Widesurf API configuration
+WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "pluq8P0XTgucCN6kyxey5EPTof36R54lQc3rfgQsoNQ")
+WIDESURF_API_URL = "https://api.widesurf.com"
+
+# Massive.com API configuration
+MASSIVE_API_KEY = os.getenv("MASSIVE_API_KEY", "vQtz66lpyexhpplKWhLL7rOXdfnClQsh")
+MASSIVE_API_URL = "https://api.massive.com"
 
 # GPU availability flags (set at import time)
 GPU_AVAILABLE = False

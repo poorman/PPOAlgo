@@ -110,12 +110,47 @@ def get_prices(
     if start_dt > end_dt:
         start_dt, end_dt = end_dt, start_dt
 
-    # Prefer Polygon 1-minute aggregates when key is present.
+    # Use Alpaca as primary data source (more reliable for historical data)
+    if ALPACA_KEY and ALPACA_SECRET:
+        params = {
+            "start": start_dt.isoformat() + "Z",
+            "end": end_dt.isoformat() + "Z",
+            "timeframe": timeframe,
+            "limit": limit,
+            "adjustment": "all",
+        }
+
+        url = f"{ALPACA_DATA_URL}/v2/stocks/{symbol}/bars"
+        headers = {
+            "APCA-API-KEY-ID": ALPACA_KEY,
+            "APCA-API-SECRET-KEY": ALPACA_SECRET,
+        }
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.get(url, params=params, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+
+        bars = data.get("bars", [])
+        return [
+            {
+              "t": bar.get("t"),
+              "o": bar.get("o"),
+              "h": bar.get("h"),
+              "l": bar.get("l"),
+              "c": bar.get("c"),
+              "v": bar.get("v"),
+            }
+            for bar in bars
+        ]
+
+    # Fallback to Polygon if Alpaca is not configured
     if POLYGON_KEY:
         try:
-            # Choose aggregation granularity strictly based on requested timeframe:
-            # - "1Day" -> daily bars
-            # - everything else (e.g. "1Min") -> minute bars
             tf_lower = timeframe.lower()
             use_day = tf_lower.startswith("1day")
             timespan = "day" if use_day else "minute"
@@ -157,44 +192,7 @@ def get_prices(
             )
         return bars
 
-    if ALPACA_KEY and ALPACA_SECRET:
-        params = {
-            "start": start_dt.isoformat() + "Z",
-            "end": end_dt.isoformat() + "Z",
-            "timeframe": timeframe,
-            "limit": limit,
-            "adjustment": "all",
-        }
-
-        url = f"{ALPACA_DATA_URL}/v2/stocks/{symbol}/bars"
-        headers = {
-            "APCA-API-KEY-ID": ALPACA_KEY,
-            "APCA-API-SECRET-KEY": ALPACA_SECRET,
-        }
-        try:
-            with httpx.Client(timeout=15.0) as client:
-                resp = client.get(url, params=params, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-        except httpx.HTTPStatusError as exc:
-            raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
-
-        bars = data.get("bars", [])
-        return [
-            {
-              "t": bar.get("t"),
-              "o": bar.get("o"),
-              "h": bar.get("h"),
-              "l": bar.get("l"),
-              "c": bar.get("c"),
-              "v": bar.get("v"),
-            }
-            for bar in bars
-        ]
-
-    raise HTTPException(status_code=400, detail="No market data provider configured (Polygon or Alpaca)")
+    raise HTTPException(status_code=400, detail="No market data provider configured (Alpaca or Polygon)")
 
 
 # Backtest request model

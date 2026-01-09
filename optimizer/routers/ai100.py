@@ -92,6 +92,7 @@ async def get_ai100_list(
                         r.full_result->'metrics'->>'total_return' as total_return,
                         r.full_result->'metrics'->>'win_rate' as win_rate,
                         r.full_result->'trade_log' as trade_log,
+                        r.sell_trigger_pct,
                         j.capital,
                         r.created_at
                     FROM optimizer_results r
@@ -104,7 +105,8 @@ async def get_ai100_list(
                     total_return,
                     win_rate,
                     trade_log,
-                    capital
+                    capital,
+                    sell_trigger_pct
                 FROM latest_results
             """
             cur.execute(query)
@@ -114,7 +116,7 @@ async def get_ai100_list(
             # Process all rows first
             processed_stocks = []
             for row in rows:
-                symbol, score, total_return, win_rate, trade_log, capital = row
+                symbol, score, total_return, win_rate, trade_log, capital, sell_trigger = row
                 
                 # Parse capital value
                 try:
@@ -159,7 +161,8 @@ async def get_ai100_list(
                     "wins": wins,                     # Number of winning trades
                     "losses": losses,
                     "calculated_win_ratio": calculated_win_ratio,  # wins / total * 100
-                    "win2_str": f"{wins}_{losses}"
+                    "win2_str": f"{wins}_{losses}",
+                    "sell_trigger": float(sell_trigger) if sell_trigger is not None else 0.0
                 })
             
             # Sort based on the requested criteria (matching frontend exactly)
@@ -244,6 +247,7 @@ async def get_ai100_list(
                 stocks.append({
                     "pair": stock["symbol"],
                     "score": calculated_score,
+                    "sell_trigger": stock["sell_trigger"],
                     "details": [{
                         "fin": round(stock["fin_value"], 2),
                         "amnt": round(stock["capital_value"], 2),

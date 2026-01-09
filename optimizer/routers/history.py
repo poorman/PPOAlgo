@@ -48,6 +48,7 @@ async def get_history(limit: int = 1000):
                     r.full_result->>'duration_seconds' as duration_seconds,
                     r.full_result->>'method' as method,
                     r.full_result->>'algo' as algo,
+                    r.full_result->>'data_source' as data_source,
                     r.full_result->>'backtest_start_date' as backtest_start_date,
                     r.full_result->>'backtest_end_date' as backtest_end_date,
                     r.full_result->'trade_log' as trade_log,
@@ -81,6 +82,18 @@ async def get_history(limit: int = 1000):
                             result[key] = float(result[key])
                         except (ValueError, TypeError):
                             pass
+                # Parse trade_log if it's a string (JSON from PostgreSQL)
+                if result.get("trade_log"):
+                    if isinstance(result["trade_log"], str):
+                        try:
+                            import json
+                            result["trade_log"] = json.loads(result["trade_log"])
+                        except (json.JSONDecodeError, TypeError):
+                            result["trade_log"] = []
+                    elif not isinstance(result["trade_log"], list):
+                        result["trade_log"] = []
+                else:
+                    result["trade_log"] = []
                 results.append(result)
             
             return results

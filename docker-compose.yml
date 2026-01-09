@@ -29,7 +29,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "8081:80"
+      - "8083:80"
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
 
@@ -39,12 +39,17 @@ services:
       - "8082:8000"
     environment:
       - PPOALGO_API=http://api:8000
+      - POSTGRES_HOST=db
     depends_on:
       - api
+      - db
     volumes:
       - ./optimizer/results:/app/results
       - ./optimizer/static:/app/static
       - ./optimizer/server.py:/app/server.py
+      - ./optimizer/routers:/app/routers
+      - ./optimizer/services:/app/services
+      - ./optimizer/algos:/app/algos
 
   db:
     image: postgres:15-alpine

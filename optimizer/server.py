@@ -877,13 +877,76 @@ def startup():
     ensure_tables()
 
 
+# ============================================================================
+# WIDESURF TICKERS PROXY ENDPOINT
+# ============================================================================
+
+@app.get("/api/widesurf/tickers/{keyword}")
+async def get_widesurf_tickers(keyword: str):
+    """
+    Proxy endpoint to fetch stock tickers from Widesurf API.
+    Avoids CORS issues when frontend calls external APIs directly.
+    
+    Args:
+        keyword: One of 'SPY500', 'NASDAQ500', or '1000'
+    
+    Returns:
+        List of stock tickers
+    """
+    # Define API URLs for each keyword
+    # Note: The exchange filter doesn't work reliably, so we use limit-based filtering
+    api_urls = {
+        'SPY500': f"https://api.widesurf.com/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
+        'NASDAQ500': f"https://api.widesurf.com/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
+        '1000': f"https://api.widesurf.com/v1/reference/tickers?market=stocks&active=true&order=desc&limit=1000&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}"
+    }
+    
+    keyword_upper = keyword.upper()
+    if keyword_upper not in api_urls:
+        return {"success": False, "error": f"Unknown keyword: {keyword}. Valid options: SPY500, NASDAQ500, 1000"}
+    
+    url = api_urls[keyword_upper]
+    
+    try:
+        logger.info(f"Fetching {keyword_upper} tickers from Widesurf API")
+        resp = requests.get(url, timeout=30)
+        
+        if resp.status_code != 200:
+            logger.error(f"Widesurf API error: {resp.status_code} - {resp.text[:500]}")
+            return {"success": False, "error": f"API returned status {resp.status_code}"}
+        
+        data = resp.json()
+        
+        if not data.get("success") or not data.get("data") or not data["data"].get("stocks"):
+            logger.error(f"Invalid API response format: {str(data)[:500]}")
+            return {"success": False, "error": "Invalid API response format"}
+        
+        # Extract stock tickers from the 'pair' field
+        stocks = [stock.get("pair") for stock in data["data"]["stocks"] if stock.get("pair")]
+        
+        logger.info(f"Fetched {len(stocks)} tickers from Widesurf API for {keyword_upper}")
+        
+        return {
+            "success": True,
+            "keyword": keyword_upper,
+            "count": len(stocks),
+            "stocks": stocks
+        }
+        
+    except requests.Timeout:
+        logger.error(f"Widesurf API timeout for {keyword_upper}")
+        return {"success": False, "error": "API request timed out"}
+    except Exception as e:
+        logger.error(f"Widesurf API error: {e}")
+        return {"success": False, "error": str(e)}
+
+
 # Store for active WebSocket connections
 active_connections: List[WebSocket] = []
 
 # Store optimization results
 optimization_results: Dict[str, dict] = {}
 optimization_status: Dict[str, dict] = {}
-
 
 
 class OptimizationRequest(BaseModel):
