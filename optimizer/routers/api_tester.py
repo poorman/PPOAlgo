@@ -7,7 +7,7 @@ Provides /api/price-compare endpoint for comparing Alpaca, Widesurf, and Massive
 import os
 import logging
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter
 
 try:
@@ -17,6 +17,101 @@ except ImportError:
 
 from config import PPOALGO_API, WIDESURF_API_KEY, WIDESURF_API_URL, MASSIVE_API_KEY, MASSIVE_API_URL
 
+
+# US Market Holidays (fixed and approximate)
+US_MARKET_HOLIDAYS = {
+    # Fixed holidays
+    (1, 1): "New Year's Day",
+    (7, 4): "Independence Day",
+    (12, 25): "Christmas Day",
+    
+    # MLK Day: 3rd Monday of January
+    # Presidents Day: 3rd Monday of February
+    # Good Friday: varies
+    # Memorial Day: last Monday of May
+    # Labor Day: 1st Monday of September
+    # Thanksgiving: 4th Thursday of November
+}
+
+def get_nth_weekday(year, month, weekday, n):
+    """Get the nth occurrence of a weekday in a month."""
+    from calendar import monthcalendar
+    weeks = monthcalendar(year, month)
+    days = [week[weekday] for week in weeks if week[weekday] != 0]
+    return days[n-1] if len(days) >= n else None
+
+def get_last_weekday(year, month, weekday):
+    """Get the last occurrence of a weekday in a month."""
+    from calendar import monthcalendar
+    weeks = monthcalendar(year, month)
+    days = [week[weekday] for week in weeks if week[weekday] != 0]
+    return days[-1] if days else None
+
+def is_market_holiday(date_str: str) -> tuple[bool, str]:
+    """Check if date is a US market holiday. Returns (is_holiday, holiday_name)."""
+    try:
+        from calendar import MONDAY, THURSDAY
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        
+        # Check fixed holidays
+        if (dt.month, dt.day) in US_MARKET_HOLIDAYS:
+            return (True, US_MARKET_HOLIDAYS[(dt.month, dt.day)])
+        
+        # MLK Day: 3rd Monday of January
+        if dt.month == 1:
+            mlk_day = get_nth_weekday(dt.year, 1, MONDAY, 3)
+            if dt.day == mlk_day:
+                return (True, "Martin Luther King Jr. Day")
+        
+        # Presidents Day: 3rd Monday of February
+        if dt.month == 2:
+            pres_day = get_nth_weekday(dt.year, 2, MONDAY, 3)
+            if dt.day == pres_day:
+                return (True, "Presidents Day")
+        
+        # Memorial Day: Last Monday of May
+        if dt.month == 5:
+            mem_day = get_last_weekday(dt.year, 5, MONDAY)
+            if dt.day == mem_day:
+                return (True, "Memorial Day")
+        
+        # Labor Day: 1st Monday of September
+        if dt.month == 9:
+            labor_day = get_nth_weekday(dt.year, 9, MONDAY, 1)
+            if dt.day == labor_day:
+                return (True, "Labor Day")
+        
+        # Thanksgiving: 4th Thursday of November
+        if dt.month == 11:
+            thanksgiving = get_nth_weekday(dt.year, 11, THURSDAY, 4)
+            if dt.day == thanksgiving:
+                return (True, "Thanksgiving Day")
+        
+        return (False, "")
+    except Exception:
+        return (False, "")
+
+def get_market_closed_reason(date_str: str) -> str:
+    """Get the reason why market is closed for a date."""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        weekday = dt.weekday()
+        
+        # Check weekend
+        if weekday == 5:  # Saturday
+            return "Saturday - Market Closed"
+        elif weekday == 6:  # Sunday
+            return "Sunday - Market Closed"
+        
+        # Check holiday
+        is_holiday, holiday_name = is_market_holiday(date_str)
+        if is_holiday:
+            return f"{holiday_name} - Market Closed"
+        
+        return "Market Closed"
+    except Exception:
+        return "Market Closed"
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["API Tester"])
@@ -24,6 +119,37 @@ router = APIRouter(prefix="/api", tags=["API Tester"])
 # Timezone constants
 ET_ZONE = ZoneInfo("America/New_York")
 UTC_ZONE = ZoneInfo("UTC")
+
+
+def is_weekend(date_str: str) -> bool:
+    """Check if date is a weekend (Saturday or Sunday)."""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        return dt.weekday() >= 5  # Saturday=5, Sunday=6
+    except Exception:
+        return False
+
+
+def get_previous_trading_day(date_str: str) -> str:
+    """Get the previous trading day (skip weekends)."""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        # If Saturday, go back 1 day to Friday
+        # If Sunday, go back 2 days to Friday
+        if dt.weekday() == 5:  # Saturday
+            dt = dt - timedelta(days=1)
+        elif dt.weekday() == 6:  # Sunday
+            dt = dt - timedelta(days=2)
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        return date_str
+
+
+def mask_api_key(api_key: str) -> str:
+    """Mask API key, showing only last 6 characters."""
+    if not api_key or len(api_key) <= 6:
+        return "***"
+    return "***" + api_key[-6:]
 
 
 def get_et_minutes(ts: str) -> int | None:
@@ -176,7 +302,40 @@ async def compare_prices(symbol: str, date: str, time: str = "10:00"):
     Calculates VWAP from 9:30 AM to user-specified time.
     """
     symbol = symbol.upper()
-    result = {"symbol": symbol, "date": date, "time": time, "alpaca": None, "widesurf": None, "massive": None}
+    
+    # Check if market is closed (weekend)
+    is_weekend_date = is_weekend(date)
+    nearest_trading_day = get_previous_trading_day(date) if is_weekend_date else None
+    
+    result = {
+        "symbol": symbol,
+        "date": date,
+        "time": time,
+        "is_weekend": is_weekend_date,
+        "market_status": "closed" if is_weekend_date else "likely_open",
+        "nearest_trading_day": nearest_trading_day,
+        "alpaca": None,
+        "widesurf": None,
+        "massive": None,
+        "api_sources": {
+            "alpaca": {
+                "endpoint": "https://paper-api.alpaca.markets/v2",
+                "key_masked": "***2UB6QT3ISHPG"
+            },
+            "widesurf": {
+                "endpoint": WIDESURF_API_URL,
+                "key_masked": mask_api_key(WIDESURF_API_KEY)
+            },
+            "massive": {
+                "endpoint": MASSIVE_API_URL,
+                "key_masked": mask_api_key(MASSIVE_API_KEY)
+            }
+        }
+    }
+    
+    # Add warning if weekend
+    if is_weekend_date:
+        result["warning"] = f"{get_market_closed_reason(date)}. No trading data available. Try {nearest_trading_day} instead."
     
     # Parse user requested time
     target_hour, target_min = map(int, time.split(":"))

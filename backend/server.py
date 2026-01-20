@@ -135,7 +135,7 @@ def get_prices(
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
 
-        bars = data.get("bars", [])
+        bars = data.get("bars") or []
         return [
             {
               "t": bar.get("t"),

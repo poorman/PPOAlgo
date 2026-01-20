@@ -749,8 +749,8 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
 # ============================================================================
 
 # Widesurf API configuration
-WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "pluq8P0XTgucCN6kyxey5EPTof36R54lQc3rfgQsoNQ")
-WIDESURF_API_URL = "https://api.widesurf.com"
+WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "2dGHYc_tyYrv33MKR1o9CG9ZTj27u2l7DDLpvQix9S8")
+WIDESURF_API_URL = os.getenv("WIDESURF_API_URL", "http://10.0.0.94:3000")
 
 def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, timeframe: str = "1Min") -> list:
     """

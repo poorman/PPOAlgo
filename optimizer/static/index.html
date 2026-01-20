@@ -1164,10 +1164,13 @@
                     </div>
                 </div>
 
-                <button onclick="runApiTest()"
-                    style="background: var(--accent); color: white; border: none; padding: 0.75rem 2rem; border-radius: 8px; cursor: pointer; font-weight: 600; margin-bottom: 1.5rem;">
-                    🚀 Fetch & Compare
-                </button>
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                    <button onclick="runApiTest()"
+                        style="background: var(--accent); color: white; border: none; padding: 0.75rem 2rem; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                        🚀 Fetch & Compare
+                    </button>
+                    <div id="weekend-warning-inline" style="flex: 1;"></div>
+                </div>
 
                 <div id="api-test-results" style="display: none;">
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
@@ -1609,8 +1612,20 @@
                     document.getElementById('massive-bars-count').textContent = data.massive.bars_used_for_vwap || 'N/A';
                 }
 
-                // Comparison summary
-                const comparisonHtml = `
+                // Add weekend/holiday warning (both inline and in comparison)
+                if (data.is_weekend || data.market_status === 'closed') {
+                    const warningText = data.warning.split('.')[0];
+                    const warningHtml = `<div style="background: rgba(251,191,36,0.2); border: 1px solid #fbbf24; border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.75rem; color: #fbbf24; display: inline-flex; align-items: center; gap: 0.5rem;">
+                        ⚠️ <strong>${warningText}</strong>
+                    </div>`;
+                    document.getElementById('weekend-warning-inline').innerHTML = warningHtml;
+                    
+                    comparisonHtml = `<div style="background: rgba(251,191,36,0.2); border: 1px solid #fbbf24; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem;"><div style="color: #fbbf24; font-weight: bold;">⚠️ ${warningText}</div><div style="color: #fcd34d; font-size: 0.75rem;">${data.warning}</div></div>`;
+                } else {
+                    document.getElementById('weekend-warning-inline').innerHTML = '';
+                }
+                
+                comparisonHtml += `
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
                         <span>User Time:</span><span style="color: var(--success); font-weight: bold;">${time}</span>
                         <span>Price Change (Open→Time):</span><span style="color: ${data.alpaca && data.alpaca.user_price > data.alpaca.open_price ? 'var(--success)' : 'var(--danger)'};">${data.alpaca && data.alpaca.open_price ? ((data.alpaca.user_price - data.alpaca.open_price) / data.alpaca.open_price * 100).toFixed(2) + '%' : 'N/A'}</span>
