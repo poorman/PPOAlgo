@@ -8,6 +8,8 @@ import os
 
 # API Configuration
 PPOALGO_API = os.getenv("PPOALGO_API", "http://ppoalgo_api_1:8000")
+ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID", "PKYAH5AZB64NRG2UB6QT3ISHPG")
+ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets/v2")
 RESULTS_DIR = "/app/results"
 
 # Database configuration

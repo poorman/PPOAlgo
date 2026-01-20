@@ -17,6 +17,11 @@ except ImportError:
 
 from config import PPOALGO_API, WIDESURF_API_KEY, WIDESURF_API_URL, MASSIVE_API_KEY, MASSIVE_API_URL
 
+# Fallback for Alpaca credentials (not in all config versions)
+ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID", "PKYAH5AZB64NRG2UB6QT3ISHPG")
+ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets/v2")
+
+
 
 # US Market Holidays (fixed and approximate)
 US_MARKET_HOLIDAYS = {
@@ -303,24 +308,28 @@ async def compare_prices(symbol: str, date: str, time: str = "10:00"):
     """
     symbol = symbol.upper()
     
-    # Check if market is closed (weekend)
+    # Check if market is closed (weekend or holiday)
     is_weekend_date = is_weekend(date)
-    nearest_trading_day = get_previous_trading_day(date) if is_weekend_date else None
+    is_holiday, holiday_name = is_market_holiday(date)
+    is_market_closed = is_weekend_date or is_holiday
+    
+    nearest_trading_day = get_previous_trading_day(date) if is_market_closed else None
     
     result = {
         "symbol": symbol,
         "date": date,
         "time": time,
         "is_weekend": is_weekend_date,
-        "market_status": "closed" if is_weekend_date else "likely_open",
+        "is_holiday": is_holiday,
+        "market_status": "closed" if is_market_closed else "likely_open",
         "nearest_trading_day": nearest_trading_day,
         "alpaca": None,
         "widesurf": None,
         "massive": None,
         "api_sources": {
             "alpaca": {
-                "endpoint": "https://paper-api.alpaca.markets/v2",
-                "key_masked": "***2UB6QT3ISHPG"
+                "endpoint": ALPACA_BASE_URL,
+                "key_masked": mask_api_key(ALPACA_API_KEY_ID)
             },
             "widesurf": {
                 "endpoint": WIDESURF_API_URL,
@@ -333,9 +342,10 @@ async def compare_prices(symbol: str, date: str, time: str = "10:00"):
         }
     }
     
-    # Add warning if weekend
-    if is_weekend_date:
+    # Add warning if closed
+    if is_market_closed:
         result["warning"] = f"{get_market_closed_reason(date)}. No trading data available. Try {nearest_trading_day} instead."
+        return result  # STRICT BLOCK: Return early if market is closed
     
     # Parse user requested time
     target_hour, target_min = map(int, time.split(":"))
@@ -375,7 +385,7 @@ async def compare_prices(symbol: str, date: str, time: str = "10:00"):
     # =========================================================================
     try:
         widesurf_url = f"{WIDESURF_API_URL}/v1/aggs/ticker/{symbol}/range/1/minute/{date}/{date}"
-        params = {"adjusted": "true", "sort": "asc", "limit": 50000}
+        params = {"adjusted": "true", "sort": "asc", "limit": 50000, "apiKey": WIDESURF_API_KEY}
         headers = {"X-API-KEY": WIDESURF_API_KEY}
         
         ws_resp = requests.get(widesurf_url, params=params, headers=headers, timeout=60)

@@ -1204,6 +1204,12 @@
                                     <span style="color: var(--text-secondary);">Bars:</span>
                                     <span id="alpaca-bars-count">--</span>
                                 </div>
+                                <div
+                                    style="margin-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.4rem; font-size: 0.65rem; color: var(--text-secondary); line-height: 1.2;">
+                                    <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                                        title="API Endpoint">📍 <span id="alpaca-endpoint">--</span></div>
+                                    <div style="font-family: monospace;">🔑 <span id="alpaca-key">--</span></div>
+                                </div>
                             </div>
                         </div>
 
@@ -1237,6 +1243,12 @@
                                     <span style="color: var(--text-secondary);">Bars:</span>
                                     <span id="widesurf-bars-count">--</span>
                                 </div>
+                                <div
+                                    style="margin-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.4rem; font-size: 0.65rem; color: var(--text-secondary); line-height: 1.2;">
+                                    <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                                        title="API Endpoint">📍 <span id="widesurf-endpoint">--</span></div>
+                                    <div style="font-family: monospace;">🔑 <span id="widesurf-key">--</span></div>
+                                </div>
                             </div>
                         </div>
 
@@ -1269,6 +1281,12 @@
 
                                     <span style="color: var(--text-secondary);">Bars:</span>
                                     <span id="massive-bars-count">--</span>
+                                </div>
+                                <div
+                                    style="margin-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.4rem; font-size: 0.65rem; color: var(--text-secondary); line-height: 1.2;">
+                                    <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                                        title="API Endpoint">📍 <span id="massive-endpoint">--</span></div>
+                                    <div style="font-family: monospace;">🔑 <span id="massive-key">--</span></div>
                                 </div>
                             </div>
                         </div>
@@ -1550,6 +1568,20 @@
             }
         }
 
+        // Clear all API test result fields
+        function clearResultFields() {
+            const sources = ['alpaca', 'widesurf', 'massive'];
+            const fields = ['open', 'user-price', 'close', 'volume-daily', 'volume-time', 'vwap-time', 'vwap-daily', 'bars-count', 'endpoint', 'key'];
+            sources.forEach(source => {
+                fields.forEach(field => {
+                    const el = document.getElementById(`${source}-${field}`);
+                    if (el) el.textContent = '--';
+                });
+            });
+            document.getElementById('weekend-warning-inline').innerHTML = '';
+            document.getElementById('comparison-details').innerHTML = '';
+        }
+
         // Run API comparison test
         async function runApiTest() {
             const ticker = document.getElementById('api-test-ticker').value.toUpperCase();
@@ -1562,10 +1594,11 @@
                 return;
             }
 
-            // Show loading
+            // Show loading and clear previous results
             document.getElementById('api-test-loading').style.display = 'block';
             document.getElementById('api-test-results').style.display = 'none';
             document.getElementById('api-test-error').style.display = 'none';
+            clearResultFields();
 
             try {
                 // Call backend API to fetch from both sources
@@ -1574,6 +1607,16 @@
 
                 if (data.error) {
                     throw new Error(data.error);
+                }
+
+                // Populate API Source Metadata (Endpoints and Masked Keys)
+                if (data.api_sources) {
+                    ['alpaca', 'widesurf', 'massive'].forEach(source => {
+                        if (data.api_sources[source]) {
+                            document.getElementById(`${source}-endpoint`).textContent = data.api_sources[source].endpoint || 'N/A';
+                            document.getElementById(`${source}-key`).textContent = data.api_sources[source].key_masked || 'N/A';
+                        }
+                    });
                 }
 
                 // Populate Alpaca results
@@ -1613,22 +1656,30 @@
                 }
 
                 // Add weekend/holiday warning (inline only)
-                if (data.is_weekend || data.market_status === 'closed') {
+                if (data.market_status === 'closed') {
                     const warningText = data.warning.split('.')[0];
                     const warningHtml = `<div style="background: rgba(251,191,36,0.2); border: 1px solid #fbbf24; border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.75rem; color: #fbbf24; display: inline-flex; align-items: center; gap: 0.5rem;">
                         ⚠️ <strong>${warningText}</strong>
                     </div>`;
                     document.getElementById('weekend-warning-inline').innerHTML = warningHtml;
+
+                    // Force clear fields again if market is closed to be double-sure
+                    if (!data.alpaca && !data.widesurf && !data.massive) {
+                        // We already called clearResultFields() at the start, but if the backend didn't return data, we stay clear.
+                    }
                 } else {
                     document.getElementById('weekend-warning-inline').innerHTML = '';
                 }
 
-                let comparisonHtml = `
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-                        <span>User Time:</span><span style="color: var(--success); font-weight: bold;">${time}</span>
-                        <span>Price Change (Open→Time):</span><span style="color: ${data.alpaca && data.alpaca.user_price > data.alpaca.open_price ? 'var(--success)' : 'var(--danger)'};">${data.alpaca && data.alpaca.open_price ? ((data.alpaca.user_price - data.alpaca.open_price) / data.alpaca.open_price * 100).toFixed(2) + '%' : 'N/A'}</span>
-                    </div>
-                `;
+                let comparisonHtml = '';
+                if (data.market_status !== 'closed' && data.alpaca && data.alpaca.user_price) {
+                    comparisonHtml = `
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                            <span>User Time:</span><span style="color: var(--success); font-weight: bold;">${time}</span>
+                            <span>Price Change (Open→Time):</span><span style="color: ${data.alpaca && data.alpaca.user_price > data.alpaca.open_price ? 'var(--success)' : 'var(--danger)'};">${data.alpaca && data.alpaca.open_price ? ((data.alpaca.user_price - data.alpaca.open_price) / data.alpaca.open_price * 100).toFixed(2) + '%' : 'N/A'}</span>
+                        </div>
+                    `;
+                }
                 document.getElementById('comparison-details').innerHTML = comparisonHtml;
 
                 // Show results
@@ -1638,7 +1689,7 @@
             } catch (error) {
                 document.getElementById('api-test-loading').style.display = 'none';
                 document.getElementById('api-test-error').style.display = 'block';
-                document.getElementById('api-test-error').textContent = `Error: ${error.message} `;
+                document.getElementById('api-test-error').textContent = `Error: ${error.message}`;
             }
         }
 
