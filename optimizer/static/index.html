@@ -1612,20 +1612,18 @@
                     document.getElementById('massive-bars-count').textContent = data.massive.bars_used_for_vwap || 'N/A';
                 }
 
-                // Add weekend/holiday warning (both inline and in comparison)
+                // Add weekend/holiday warning (inline only)
                 if (data.is_weekend || data.market_status === 'closed') {
                     const warningText = data.warning.split('.')[0];
                     const warningHtml = `<div style="background: rgba(251,191,36,0.2); border: 1px solid #fbbf24; border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.75rem; color: #fbbf24; display: inline-flex; align-items: center; gap: 0.5rem;">
                         ⚠️ <strong>${warningText}</strong>
                     </div>`;
                     document.getElementById('weekend-warning-inline').innerHTML = warningHtml;
-                    
-                    comparisonHtml = `<div style="background: rgba(251,191,36,0.2); border: 1px solid #fbbf24; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem;"><div style="color: #fbbf24; font-weight: bold;">⚠️ ${warningText}</div><div style="color: #fcd34d; font-size: 0.75rem;">${data.warning}</div></div>`;
                 } else {
                     document.getElementById('weekend-warning-inline').innerHTML = '';
                 }
-                
-                comparisonHtml += `
+
+                let comparisonHtml = `
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
                         <span>User Time:</span><span style="color: var(--success); font-weight: bold;">${time}</span>
                         <span>Price Change (Open→Time):</span><span style="color: ${data.alpaca && data.alpaca.user_price > data.alpaca.open_price ? 'var(--success)' : 'var(--danger)'};">${data.alpaca && data.alpaca.open_price ? ((data.alpaca.user_price - data.alpaca.open_price) / data.alpaca.open_price * 100).toFixed(2) + '%' : 'N/A'}</span>
@@ -1640,7 +1638,7 @@
             } catch (error) {
                 document.getElementById('api-test-loading').style.display = 'none';
                 document.getElementById('api-test-error').style.display = 'block';
-                document.getElementById('api-test-error').textContent = `Error: ${error.message}`;
+                document.getElementById('api-test-error').textContent = `Error: ${error.message} `;
             }
         }
 
@@ -1734,7 +1732,7 @@
             document.querySelectorAll('.trade-row.selected').forEach(row => row.classList.remove('selected'));
 
             // Highlight selected row
-            const selectedRow = document.querySelector(`[data-trade-index="${tradeIndex}"]`);
+            const selectedRow = document.querySelector(`[data - trade - index= "${tradeIndex}"]`);
             if (selectedRow) selectedRow.classList.add('selected');
 
             const date = t.date ? t.date.substring(0, 10) : 'Unknown';
@@ -1746,56 +1744,56 @@
 
             const pctFrom10amToOpen = t.open > 0 && t.price_10am ? (((t.price_10am - t.open) / t.open) * 100).toFixed(2) : '0';
 
-            let html = `<div class="trade-explanation-panel">`;
-            html += `<div class="explanation-title">
+            let html = `< div class="trade-explanation-panel" > `;
+            html += `< div class="explanation-title" >
                 <span>📅 ${date} — ${t.bought ? '✅ Trade Executed' : '❌ Trade Skipped'}</span>
                 <button class="explanation-close" onclick="closeTradeExplanation()">✕</button>
-            </div>`;
+            </div > `;
 
             if (isVWAP) {
                 // VWAP Strategy Explanation
-                html += `<div class="explanation-section">`;
-                html += `<div class="explanation-section-title">📊 Market Snapshot at 10:00 AM</div>`;
-                html += `<div style="color: #e2e8f0; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;">`;
-                html += `• The stock <b>opened</b> the day at <b>$${open}</b><br>`;
+                html += `< div class="explanation-section" > `;
+                html += `< div class="explanation-section-title" >📊 Market Snapshot at 10:00 AM</div > `;
+                html += `< div style = "color: #e2e8f0; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;" > `;
+                html += `• The stock < b > opened</b > the day at < b > $${open}</b > <br>`;
                 html += `• By <b>10:00 AM</b>, the price moved to <b>$${price10am}</b> — that's <b>${pctFrom10amToOpen >= 0 ? '+' : ''}${pctFrom10amToOpen}%</b> from open<br>`;
                 html += `• The <b>VWAP</b> (Volume Weighted Average Price = the "fair" price where most volume traded) was <b>$${vwap}</b>`;
                 html += `</div></div>`;
 
-                html += `<div class="explanation-section">`;
-                html += `<div class="explanation-section-title">🎯 Entry Conditions Checked (ALL must pass)</div>`;
+                html += `< div class="explanation-section" > `;
+                html += `< div class="explanation-section-title" >🎯 Entry Conditions Checked(ALL must pass)</div > `;
 
                 const priceAboveVwap = t.price_10am > t.vwap && t.vwap > 0;
                 const skipReason = t.skip_reason || '';
 
                 const c1Pass = priceAboveVwap;
-                html += `<div class="explanation-check ${c1Pass ? 'pass' : 'fail'}">`;
-                html += `<span style="font-size: 1.1rem;">${c1Pass ? '✓' : '✗'}</span>`;
-                html += `<div><b>Price > VWAP:</b> Is $${price10am} above $${vwap}?<br>`;
+                html += `< div class="explanation-check ${c1Pass ? 'pass' : 'fail'}" > `;
+                html += `< span style = "font-size: 1.1rem;" > ${c1Pass ? '✓' : '✗'}</span > `;
+                html += `< div > <b>Price > VWAP:</b> Is $${price10am} above $${vwap}?<br>`;
                 html += c1Pass ? `<i>YES! The stock is trading above its average price — signs of strength.</i>` : `<i>NO. The stock is trading below average — too weak to buy.</i>`;
-                html += `</div></div>`;
+                html += `</div></div > `;
 
                 const c2Pass = !skipReason.includes('slope');
-                html += `<div class="explanation-check ${c2Pass ? 'pass' : 'fail'}">`;
-                html += `<span style="font-size: 1.1rem;">${c2Pass ? '✓' : '✗'}</span>`;
-                html += `<div><b>VWAP Trending Up (Slope > 0):</b><br>`;
+                html += `< div class="explanation-check ${c2Pass ? 'pass' : 'fail'}" > `;
+                html += `< span style = "font-size: 1.1rem;" > ${c2Pass ? '✓' : '✗'}</span > `;
+                html += `< div ><b>VWAP Trending Up (Slope > 0):</b><br>`;
                 html += c2Pass ? `<i>YES! VWAP is rising between 9:40-10AM — buyers are in control.</i>` : `<i>NO. VWAP is falling — sellers are dominating, skip this trade.</i>`;
-                html += `</div></div>`;
+                html += `</div></div > `;
 
                 const c3Pass = !skipReason.includes('stretch');
-                html += `<div class="explanation-check ${c3Pass ? 'pass' : 'fail'}">`;
-                html += `<span style="font-size: 1.1rem;">${c3Pass ? '✓' : '✗'}</span>`;
-                html += `<div><b>Price Not Overextended (Stretch < 0.5×Volatility):</b><br>`;
+                html += `< div class="explanation-check ${c3Pass ? 'pass' : 'fail'}" > `;
+                html += `< span style = "font-size: 1.1rem;" > ${c3Pass ? '✓' : '✗'}</span > `;
+                html += `< div ><b>Price Not Overextended (Stretch < 0.5×Volatility):</b><br>`;
                 html += c3Pass ? `<i>YES! Price is close enough to VWAP — safe entry point.</i>` : `<i>NO. Price has run up too far above VWAP — chasing would be risky.</i>`;
-                html += `</div></div>`;
+                html += `</div></div > `;
 
                 const c4Pass = !skipReason.includes('mom');
-                html += `<div class="explanation-check ${c4Pass ? 'pass' : 'fail'}">`;
-                html += `<span style="font-size: 1.1rem;">${c4Pass ? '✓' : '✗'}</span>`;
-                html += `<div><b>Enough Momentum (Mom > 0.25×Volatility):</b><br>`;
+                html += `< div class="explanation-check ${c4Pass ? 'pass' : 'fail'}" > `;
+                html += `< span style = "font-size: 1.1rem;" > ${c4Pass ? '✓' : '✗'}</span > `;
+                html += `< div ><b>Enough Momentum (Mom > 0.25×Volatility):</b><br>`;
                 html += c4Pass ? `<i>YES! Stock has solid upward momentum from open — good entry.</i>` : `<i>NO. Not enough buying pressure yet — wait for more momentum.</i>`;
-                html += `</div></div>`;
-                html += `</div>`;
+                html += `</div></div > `;
+                html += `</div > `;
 
                 // Result section
                 if (t.bought) {
@@ -1803,8 +1801,8 @@
                     const slPrice = t.stop_loss?.toFixed(2) || open;
                     const profitPct = t.buy_price > 0 ? (((t.actual_sell || t.close) - t.buy_price) / t.buy_price * 100).toFixed(2) : '0';
 
-                    html += `<div class="explanation-result ${t.profit >= 0 ? 'win' : 'loss'}">`;
-                    html += `<b>✅ ALL 4 CONDITIONS PASSED → BOUGHT at $${price10am}</b><br><br>`;
+                    html += `< div class="explanation-result ${t.profit >= 0 ? 'win' : 'loss'}" > `;
+                    html += `< b >✅ ALL 4 CONDITIONS PASSED → BOUGHT at $${price10am}</b > <br><br>`;
                     html += `<b>Exit Plan:</b><br>`;
                     html += `• Take Profit (TP): Sell at $${tpPrice} (+${sellTrigger}% profit)<br>`;
                     html += `• Stop Loss (SL): Sell at $${slPrice} (day's open price — protection)<br><br>`;
@@ -1947,43 +1945,43 @@
                 const tdStyle = 'padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.05);';
 
                 tradeLogHtml = `
-                    <div style="margin-top: 0.75rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem;">
-                            <div style="color: var(--accent); font-weight: 600; font-size: 0.75rem;">
-                                📊 Trade Log with Buy/Sell Guidance <span style="color: var(--text-secondary); font-weight: 400; font-size: 0.65rem;">(${tradeLog.length} days) ${dateRange}</span>
-                                <span style="color: #94a3b8; font-weight: 400; font-size: 0.55rem; margin-left: 8px;">👆 Click any row to see detailed explanation</span>
-                            </div>
-                            <div style="display: flex; gap: 0.5rem; font-size: 0.6rem;">
-                                <span style="background: ${currentTradeLogMeta.data_source === 'widesurf' ? '#a78bfa' : currentTradeLogMeta.data_source === 'massive' ? '#ffa500' : '#22c55e'}; color: white; padding: 2px 6px; border-radius: 4px; font-weight: 600;">
-                                    📡 ${currentTradeLogMeta.data_source === 'widesurf' ? 'Widesurf API' : currentTradeLogMeta.data_source === 'massive' ? 'Massive.com' : 'Alpaca API'}
-                                </span>
-                            </div>
-                        </div>
-                        <div id="trade-explanation-container"></div>
-                        <div style="max-height: 800px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px;">
-                            <table id="trade-log-table" style="width: 100%; font-size: 0.65rem; border-collapse: collapse;">
-                                <thead style="background: var(--bg-card); position: sticky; top: 0; z-index: 1;">
-                                    <tr>
-                                        <th style="${thStyle} text-align: left;" onclick="sortTradeLog('date')">Date${sortIcon('date')}</th>
-                                        <th style="${thStyle} text-align: center;" onclick="sortTradeLog('bought')">Buy?${sortIcon('bought')}</th>
-                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('open')">Open${sortIcon('open')}</th>
-                                        ${isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('price_10am')">10AM Price${sortIcon('price_10am')}</th>` : ''}
-                                        ${isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_change_10am')">10AM Δ %${sortIcon('pct_change_10am')}</th>` : ''}
-                                        ${isVWAP ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('vwap')">VWAP${sortIcon('vwap')}</th>` : ''}
-                                        ${isVWAP ? `<th style="${thStyle} text-align: left; min-width: 90px;" onclick="sortTradeLog('skip_reason')">Skipped${sortIcon('skip_reason')}</th>` : ''}
-                                        ${isDipper && !isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('prev_close')">Prev Close${sortIcon('prev_close')}</th>` : ''}
-                                        ${isDipper && !isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_change')">% Chg${sortIcon('pct_change')}</th>` : ''}
-                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('close')">Close${sortIcon('close')}</th>
-                                        ${isStopLoss ? `<th style="${thStyle} text-align: right;">TP @</th>` : ''}
-                                        ${isStopLoss ? `<th style="${thStyle} text-align: right;">SL @</th>` : ''}
-                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('sell_price')">Sell @${sortIcon('sell_price')}</th>
-                                        ${isStopLoss ? `<th style="${thStyle} text-align: center;">Exit</th>` : ''}
-                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('profit')">Profit${sortIcon('profit')}</th>
-                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('equity')">Equity${sortIcon('equity')}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${tradeLog.map((t, index) => `
+                                    <div style="margin-top: 0.75rem;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem;">
+                                            <div style="color: var(--accent); font-weight: 600; font-size: 0.75rem;">
+                                                📊 Trade Log with Buy/Sell Guidance <span style="color: var(--text-secondary); font-weight: 400; font-size: 0.65rem;">(${tradeLog.length} days) ${dateRange}</span>
+                                                <span style="color: #94a3b8; font-weight: 400; font-size: 0.55rem; margin-left: 8px;">👆 Click any row to see detailed explanation</span>
+                                            </div>
+                                            <div style="display: flex; gap: 0.5rem; font-size: 0.6rem;">
+                                                <span style="background: ${currentTradeLogMeta.data_source === 'widesurf' ? '#a78bfa' : currentTradeLogMeta.data_source === 'massive' ? '#ffa500' : '#22c55e'}; color: white; padding: 2px 6px; border-radius: 4px; font-weight: 600;">
+                                                    📡 ${currentTradeLogMeta.data_source === 'widesurf' ? 'Widesurf API' : currentTradeLogMeta.data_source === 'massive' ? 'Massive.com' : 'Alpaca API'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div id="trade-explanation-container"></div>
+                                        <div style="max-height: 800px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px;">
+                                            <table id="trade-log-table" style="width: 100%; font-size: 0.65rem; border-collapse: collapse;">
+                                                <thead style="background: var(--bg-card); position: sticky; top: 0; z-index: 1;">
+                                                    <tr>
+                                                        <th style="${thStyle} text-align: left;" onclick="sortTradeLog('date')">Date${sortIcon('date')}</th>
+                                                        <th style="${thStyle} text-align: center;" onclick="sortTradeLog('bought')">Buy?${sortIcon('bought')}</th>
+                                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('open')">Open${sortIcon('open')}</th>
+                                                        ${isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('price_10am')">10AM Price${sortIcon('price_10am')}</th>` : ''}
+                                                        ${isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_change_10am')">10AM Δ %${sortIcon('pct_change_10am')}</th>` : ''}
+                                                        ${isVWAP ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('vwap')">VWAP${sortIcon('vwap')}</th>` : ''}
+                                                        ${isVWAP ? `<th style="${thStyle} text-align: left; min-width: 90px;" onclick="sortTradeLog('skip_reason')">Skipped${sortIcon('skip_reason')}</th>` : ''}
+                                                        ${isDipper && !isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('prev_close')">Prev Close${sortIcon('prev_close')}</th>` : ''}
+                                                        ${isDipper && !isChatGPT ? `<th style="${thStyle} text-align: right;" onclick="sortTradeLog('pct_change')">% Chg${sortIcon('pct_change')}</th>` : ''}
+                                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('close')">Close${sortIcon('close')}</th>
+                                                        ${isStopLoss ? `<th style="${thStyle} text-align: right;">TP @</th>` : ''}
+                                                        ${isStopLoss ? `<th style="${thStyle} text-align: right;">SL @</th>` : ''}
+                                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('sell_price')">Sell @${sortIcon('sell_price')}</th>
+                                                        ${isStopLoss ? `<th style="${thStyle} text-align: center;">Exit</th>` : ''}
+                                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('profit')">Profit${sortIcon('profit')}</th>
+                                                        <th style="${thStyle} text-align: right;" onclick="sortTradeLog('equity')">Equity${sortIcon('equity')}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    ${tradeLog.map((t, index) => `
                                         <tr class="trade-row" data-trade-index="${index}" onclick="showTradeExplanation(${index})" style="background: ${t.bought ? (t.sold_at_target ? 'rgba(0,200,100,0.15)' : 'rgba(0,200,100,0.08)') : 'transparent'};">
                                             <td style="${tdStyle} color: var(--text-secondary);">${t.date ? t.date.substring(0, 10) : ''}</td>
                                             <td style="${tdStyle} text-align: center;">${t.bought ? '✅' : '❌'}</td>
@@ -2017,50 +2015,50 @@
                                             <td style="${tdStyle} text-align: right; font-weight: 500;">$${t.equity?.toLocaleString() || 'N/A'}</td>
                                         </tr>
                                     `).join('')}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                `;
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    `;
             } else {
                 console.warn('No trade log data available. tradeLog length:', tradeLog.length, 'tradeLog:', tradeLog);
                 tradeLogHtml = `
-                    <div style="margin-top: 0.75rem; padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #ef4444;">
-                        <div style="color: #ef4444; font-weight: 600; margin-bottom: 0.5rem;">⚠️ Trade log not available</div>
-                        <div style="color: var(--text-secondary); font-size: 0.65rem;">
-                            Trade log data is missing for this run. This may happen if:<br>
-                            • The optimization was run before trade log generation was implemented<br>
-                            • The trade log failed to save to the database<br>
-                            • The data format is incompatible
-                        </div>
-                        <div style="margin-top: 0.5rem; font-size: 0.6rem; color: var(--text-secondary); font-family: monospace;">
-                            Debug: tradeLog type=${typeof tradeLog}, length=${tradeLog ? tradeLog.length : 'null'}, algo=${currentTradeLogMeta.algo || 'N/A'}
-                        </div>
-                    </div>
-                `;
+                                    <div style="margin-top: 0.75rem; padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #ef4444;">
+                                        <div style="color: #ef4444; font-weight: 600; margin-bottom: 0.5rem;">⚠️ Trade log not available</div>
+                                        <div style="color: var(--text-secondary); font-size: 0.65rem;">
+                                            Trade log data is missing for this run. This may happen if:<br>
+                                                • The optimization was run before trade log generation was implemented<br>
+                                                    • The trade log failed to save to the database<br>
+                                                        • The data format is incompatible
+                                                    </div>
+                                                    <div style="margin-top: 0.5rem; font-size: 0.6rem; color: var(--text-secondary); font-family: monospace;">
+                                                        Debug: tradeLog type=${typeof tradeLog}, length=${tradeLog ? tradeLog.length : 'null'}, algo=${currentTradeLogMeta.algo || 'N/A'}
+                                                    </div>
+                                                </div>
+                                                `;
             }
 
             container.innerHTML = `
-                <div style="padding: 0.5rem;">
-                    <div style="color: var(--accent); font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">
-                        📊 ${currentTradeLogMeta.symbol} Optimization Analysis
-                    </div>
-                    
-                    <div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(29, 155, 240, 0.1); border-radius: 6px;">
-                        <div style="color: var(--text-secondary); font-size: 0.65rem; margin-bottom: 0.3rem;">Strategy:</div>
-                        <div style="color: var(--text); font-size: 0.65rem; line-height: 1.4;">
-                            ${isVWAP
+                                                <div style="padding: 0.5rem;">
+                                                    <div style="color: var(--accent); font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">
+                                                        📊 ${currentTradeLogMeta.symbol} Optimization Analysis
+                                                    </div>
+
+                                                    <div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(29, 155, 240, 0.1); border-radius: 6px;">
+                                                        <div style="color: var(--text-secondary); font-size: 0.65rem; margin-bottom: 0.3rem;">Strategy:</div>
+                                                        <div style="color: var(--text); font-size: 0.65rem; line-height: 1.4;">
+                                                            ${isVWAP
                     ? `<b>Adaptive VWAP:</b> Buy @ 10AM if: price > VWAP ∧ slope > 0 ∧ stretch < 0.5×vol ∧ mom > 0.25×vol → TP @ <b>${p.sell_trigger_pct || 'N/A'}%</b> | SL @ Open`
                     : isChatGPT
                         ? `Buy @ 10AM if <b>+${p.buy_trigger_pct || 'N/A'}%</b> up from open → Sell @ <b>+${p.sell_trigger_pct || 'N/A'}%</b> from open`
-                        : `Buy @ <b>${p.buy_trigger_pct || 'N/A'}%</b> above prev close → Sell @ <b>${p.sell_trigger_pct || 'N/A'}%</b> profit`} | 
-                            ${p.compound ? 'Compound' : 'Fixed'} | Win: <b>${m.win_rate ? (m.win_rate * 100).toFixed(0) + '%' : 'N/A'}</b>
-                        </div>
-                    </div>
-                    
-                    ${tradeLogHtml}
-                </div>
-            `;
+                        : `Buy @ <b>${p.buy_trigger_pct || 'N/A'}%</b> above prev close → Sell @ <b>${p.sell_trigger_pct || 'N/A'}%</b> profit`} |
+                                                            ${p.compound ? 'Compound' : 'Fixed'} | Win: <b>${m.win_rate ? (m.win_rate * 100).toFixed(0) + '%' : 'N/A'}</b>
+                                                        </div>
+                                                    </div>
+
+                                                    ${tradeLogHtml}
+                                                </div>
+                                                `;
         }
 
         function sortTradeLog(column) {
@@ -2403,21 +2401,21 @@
                 const algoName = item.algo === 'default' ? 'dipper' : (item.algo || 'dipper');
                 const algoBadge = `<span style="font-size: 0.55rem; color: #ff6b6b; margin-left: 0.3rem; font-weight: 600;">${algoName}</span>`;
                 return `
-                <div class="history-item">
-                    <div style="display: flex; flex-direction: column; gap: 2px;">
-                        ${gpuIcon}
-                        ${setIcon}
-                        ${dbIcon}
-                    </div>
-                    <div class="history-item-content" onclick="showHistoryDetailById(${item.id})">
-                        <div class="history-symbol">${item.symbol}${algoBadge}</div>
-                        <div class="history-date">${formatDate(item.created_at)}</div>
-                        <div class="history-score">
-                            win: ${item.win_rate ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'} | 
-                            ret: ${item.total_return ? (parseFloat(item.total_return) * 100).toFixed(0) + '%' : 'N/A'}
-                        </div>
-                        <div class="history-score" style="font-size: 0.65rem; opacity: 0.8;">
-                            fin: ${(() => {
+                                                <div class="history-item">
+                                                    <div style="display: flex; flex-direction: column; gap: 2px;">
+                                                        ${gpuIcon}
+                                                        ${setIcon}
+                                                        ${dbIcon}
+                                                    </div>
+                                                    <div class="history-item-content" onclick="showHistoryDetailById(${item.id})">
+                                                        <div class="history-symbol">${item.symbol}${algoBadge}</div>
+                                                        <div class="history-date">${formatDate(item.created_at)}</div>
+                                                        <div class="history-score">
+                                                            win: ${item.win_rate ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'} |
+                                                            ret: ${item.total_return ? (parseFloat(item.total_return) * 100).toFixed(0) + '%' : 'N/A'}
+                                                        </div>
+                                                        <div class="history-score" style="font-size: 0.65rem; opacity: 0.8;">
+                                                            fin: ${(() => {
                         // Get final equity from last trade in trade_log
                         const capital = item.capital || 100000;
                         if (item.trade_log && item.trade_log.length > 0) {
@@ -2440,15 +2438,15 @@
                         const winRate = total > 0 ? (wins / total * 100).toFixed(0) : 0;
                         return '<span style="color: var(--accent);">' + wins + '</span>/<span style="color: var(--danger);">' + losses + '</span> | ' + winRate + '%';
                     })()}
-                        </div>
-                    </div>
-                    <button class="delete-btn" onclick="event.stopPropagation(); deleteHistoryItem(${item.id})" title="Delete">🗑️</button>
-                </div>
+                                                        </div>
+                                                    </div>
+                                                    <button class="delete-btn" onclick="event.stopPropagation(); deleteHistoryItem(${item.id})" title="Delete">🗑️</button>
+                                                </div>
             `}).join('') + (hasMore ? `
-                <button onclick="loadMoreHistory()" style="width: 100%; padding: 10px; margin-top: 8px; background: rgba(29, 155, 240, 0.2); border: 1px solid var(--accent); border-radius: 8px; color: var(--accent); cursor: pointer; font-size: 0.8rem;">
-                    📋 Load More (${remaining} remaining)
-                </button>
-            ` : '');
+                                                <button onclick="loadMoreHistory()" style="width: 100%; padding: 10px; margin-top: 8px; background: rgba(29, 155, 240, 0.2); border: 1px solid var(--accent); border-radius: 8px; color: var(--accent); cursor: pointer; font-size: 0.8rem;">
+                                                    📋 Load More (${remaining} remaining)
+                                                </button>
+                                                ` : '');
         }
 
         // Load more history items
@@ -2544,70 +2542,70 @@
             const card = document.createElement('div');
             card.className = 'result-card complete';
             card.innerHTML = `
-                <div class="result-header">
-                    <span class="symbol-badge">${item.symbol}</span>
-                    <span class="status-badge complete">History</span>
-                </div>
-                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 1rem;">
-                    Run on: ${formatDate(item.created_at)}<br>
-                    Period: ${item.start_date || 'N/A'} to ${item.end_date || 'N/A'}
-                </div>
-                <div class="metrics-grid">
-                    <div class="metric">
-                        <div class="metric-label">Volatility Range</div>
-                        <div class="metric-value">${sanitizeValue(item.volatility_avg_range, true, 2)}</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-label">Max Gain</div>
-                        <div class="metric-value">${sanitizeValue(item.volatility_max_gain, true, 2)}</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-label">Vol Score</div>
-                        <div class="metric-value">${sanitizeValue(item.volatility_score, false, 2)}</div>
-                    </div>
-                </div>
-                <div class="params-display">
-                    <div class="param">
-                        <div class="param-label">Buy Trigger</div>
-                        <div class="param-value">${item.buy_trigger_pct}%</div>
-                    </div>
-                    <div class="param">
-                        <div class="param-label">Sell Trigger</div>
-                        <div class="param-value">${item.sell_trigger_pct}%</div>
-                    </div>
-                    <div class="param">
-                        <div class="param-label">Compound</div>
-                        <div class="param-value">${item.compound ? 'Yes' : 'No'}</div>
-                    </div>
-                </div>
-                <div class="metrics-grid" style="margin-top: 1rem;">
-                    <div class="metric">
-                        <div class="metric-label">${item.optimized_for || 'Score'}</div>
-                        <div class="metric-value ${item.score > 0 ? 'positive' : 'negative'}">${sanitizeValue(item.score, false, 2)}</div>
-                    </div>
-                    ${item.optimized_for !== 'win_rate' ? `
+                                                <div class="result-header">
+                                                    <span class="symbol-badge">${item.symbol}</span>
+                                                    <span class="status-badge complete">History</span>
+                                                </div>
+                                                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                                                    Run on: ${formatDate(item.created_at)}<br>
+                                                        Period: ${item.start_date || 'N/A'} to ${item.end_date || 'N/A'}
+                                                </div>
+                                                <div class="metrics-grid">
+                                                    <div class="metric">
+                                                        <div class="metric-label">Volatility Range</div>
+                                                        <div class="metric-value">${sanitizeValue(item.volatility_avg_range, true, 2)}</div>
+                                                    </div>
+                                                    <div class="metric">
+                                                        <div class="metric-label">Max Gain</div>
+                                                        <div class="metric-value">${sanitizeValue(item.volatility_max_gain, true, 2)}</div>
+                                                    </div>
+                                                    <div class="metric">
+                                                        <div class="metric-label">Vol Score</div>
+                                                        <div class="metric-value">${sanitizeValue(item.volatility_score, false, 2)}</div>
+                                                    </div>
+                                                </div>
+                                                <div class="params-display">
+                                                    <div class="param">
+                                                        <div class="param-label">Buy Trigger</div>
+                                                        <div class="param-value">${item.buy_trigger_pct}%</div>
+                                                    </div>
+                                                    <div class="param">
+                                                        <div class="param-label">Sell Trigger</div>
+                                                        <div class="param-value">${item.sell_trigger_pct}%</div>
+                                                    </div>
+                                                    <div class="param">
+                                                        <div class="param-label">Compound</div>
+                                                        <div class="param-value">${item.compound ? 'Yes' : 'No'}</div>
+                                                    </div>
+                                                </div>
+                                                <div class="metrics-grid" style="margin-top: 1rem;">
+                                                    <div class="metric">
+                                                        <div class="metric-label">${item.optimized_for || 'Score'}</div>
+                                                        <div class="metric-value ${item.score > 0 ? 'positive' : 'negative'}">${sanitizeValue(item.score, false, 2)}</div>
+                                                    </div>
+                                                    ${item.optimized_for !== 'win_rate' ? `
                     <div class="metric">
                         <div class="metric-label">Win %</div>
                         <div class="metric-value ${(item.win_rate && parseFloat(item.win_rate) > 0.5) ? 'positive' : ''}">${item.win_rate ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'}</div>
                     </div>
                     ` : ''}
-                    <div class="metric">
-                        <div class="metric-label">Trials</div>
-                        <div class="metric-value">${item.n_trials || 'N/A'}</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-label">Duration</div>
-                        <div class="metric-value" style="color: var(--accent);">⏱️ ${item.duration_seconds ? (item.duration_seconds >= 60 ? Math.floor(item.duration_seconds / 60) + 'm ' + Math.round(item.duration_seconds % 60) + 's' : item.duration_seconds + 's') : 'N/A'}</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-label">Capital</div>
-                        <div class="metric-value">$${(item.capital || 0).toLocaleString()}</div>
-                    </div>
-                </div>
-                <button class="btn btn-primary" style="margin-top: 1rem; width: 100%;" onclick="applyHistoryConfig(${JSON.stringify(item).replace(/"/g, '&quot;')})">
-                    Apply These Settings
-                </button>
-            `;
+                                                    <div class="metric">
+                                                        <div class="metric-label">Trials</div>
+                                                        <div class="metric-value">${item.n_trials || 'N/A'}</div>
+                                                    </div>
+                                                    <div class="metric">
+                                                        <div class="metric-label">Duration</div>
+                                                        <div class="metric-value" style="color: var(--accent);">⏱️ ${item.duration_seconds ? (item.duration_seconds >= 60 ? Math.floor(item.duration_seconds / 60) + 'm ' + Math.round(item.duration_seconds % 60) + 's' : item.duration_seconds + 's') : 'N/A'}</div>
+                                                    </div>
+                                                    <div class="metric">
+                                                        <div class="metric-label">Capital</div>
+                                                        <div class="metric-value">$${(item.capital || 0).toLocaleString()}</div>
+                                                    </div>
+                                                </div>
+                                                <button class="btn btn-primary" style="margin-top: 1rem; width: 100%;" onclick="applyHistoryConfig(${JSON.stringify(item).replace(/" /g, '&quot;')})">
+                                                Apply These Settings
+                                            </button>
+                                            `;
             container.appendChild(card);
 
             // Update Analysis tab with this history item's data
@@ -2921,11 +2919,11 @@
                     const algoType = document.getElementById('algo-select').value;
                     const isVWAP = algoType === 'chatgpt_vwap';
                     params.innerHTML = `
-            <div class="param"><div class="param-label">Buy Trigger</div><div class="param-value">${r.best_params.buy_trigger_pct}%</div></div>
-            <div class="param"><div class="param-label">Sell Trigger</div><div class="param-value">${r.best_params.sell_trigger_pct}%</div></div>
-            <div class="param"><div class="param-label">Compound</div><div class="param-value">${r.best_params.compound ? 'Yes' : 'No'}</div></div>
-            ${isVWAP ? '<div class="param"><div class="param-label">Stop Loss</div><div class="param-value" style="color: #22c55e;">None</div></div>' : ''}
-          `;
+                                            <div class="param"><div class="param-label">Buy Trigger</div><div class="param-value">${r.best_params.buy_trigger_pct}%</div></div>
+                                            <div class="param"><div class="param-label">Sell Trigger</div><div class="param-value">${r.best_params.sell_trigger_pct}%</div></div>
+                                            <div class="param"><div class="param-label">Compound</div><div class="param-value">${r.best_params.compound ? 'Yes' : 'No'}</div></div>
+                                            ${isVWAP ? '<div class="param"><div class="param-label">Stop Loss</div><div class="param-value" style="color: #22c55e;">None</div></div>' : ''}
+                                            `;
                 }
 
                 const metrics = card.querySelector('.result-metrics');
@@ -2939,10 +2937,10 @@
                     const winRateDisplay = (winRate != null && winRate !== -999999 && !isNaN(winRate)) ? `${(winRate * 100).toFixed(0)}%` : 'N/A';
                     const showWinRate = metricType !== 'win_rate';
                     metrics.innerHTML = `
-            <div class="metric"><div class="metric-label">${metricType}</div><div class="metric-value ${(score != null && score !== -999999 && score > 0) ? 'positive' : 'negative'}">${sanitizedScore}</div></div>
-            ${showWinRate ? `<div class="metric"><div class="metric-label">Win %</div><div class="metric-value ${(winRate != null && winRate > 0.5) ? 'positive' : ''}">${winRateDisplay}</div></div>` : ''}
-            <div class="metric"><div class="metric-label">Duration</div><div class="metric-value" style="color: var(--accent);">⏱️ ${durationText}</div></div>
-          `;
+                                            <div class="metric"><div class="metric-label">${metricType}</div><div class="metric-value ${(score != null && score !== -999999 && score > 0) ? 'positive' : 'negative'}">${sanitizedScore}</div></div>
+                                            ${showWinRate ? `<div class="metric"><div class="metric-label">Win %</div><div class="metric-value ${(winRate != null && winRate > 0.5) ? 'positive' : ''}">${winRateDisplay}</div></div>` : ''}
+                                            <div class="metric"><div class="metric-label">Duration</div><div class="metric-value" style="color: var(--accent);">⏱️ ${durationText}</div></div>
+                                            `;
                 }
             }
 
@@ -3002,19 +3000,19 @@
             card.id = `card-${symbol}`;
             card.className = `result-card ${status}`;
             card.innerHTML = `
-        <div class="result-header">
-          <span class="symbol-badge">${symbol}</span>
-          <span class="status-badge ${status}">Starting</span>
-        </div>
-        <div class="progress-bar"><div class="progress-bar-fill" style="width: 0%"></div></div>
-        <div class="progress-text" style="font-size: 0.75rem; color: var(--text-secondary);">Initializing...</div>
-        <div class="metrics-grid volatility-info"></div>
-        <div class="params-display current-params">
-          <div class="param"><div class="param-label">Buy Trigger</div><div class="param-value">--</div></div>
-          <div class="param"><div class="param-label">Sell Trigger</div><div class="param-value">--</div></div>
-        </div>
-        <div class="metrics-grid result-metrics"></div>
-      `;
+                                            <div class="result-header">
+                                                <span class="symbol-badge">${symbol}</span>
+                                                <span class="status-badge ${status}">Starting</span>
+                                            </div>
+                                            <div class="progress-bar"><div class="progress-bar-fill" style="width: 0%"></div></div>
+                                            <div class="progress-text" style="font-size: 0.75rem; color: var(--text-secondary);">Initializing...</div>
+                                            <div class="metrics-grid volatility-info"></div>
+                                            <div class="params-display current-params">
+                                                <div class="param"><div class="param-label">Buy Trigger</div><div class="param-value">--</div></div>
+                                                <div class="param"><div class="param-label">Sell Trigger</div><div class="param-value">--</div></div>
+                                            </div>
+                                            <div class="metrics-grid result-metrics"></div>
+                                            `;
             container.appendChild(card);
         }
 
