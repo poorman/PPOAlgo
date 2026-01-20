@@ -1657,8 +1657,11 @@
 
                 // Add weekend/holiday warning (inline only)
                 if (data.market_status === 'closed') {
-                    const warningText = data.warning.split('.')[0];
-                    const warningHtml = `<div style="background: rgba(251,191,36,0.2); border: 1px solid #fbbf24; border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.75rem; color: #fbbf24; display: inline-flex; align-items: center; gap: 0.5rem;">
+                    let warningText = data.warning.split('.')[0];
+                    if (!warningText.includes('Market closed') && !warningText.includes('Market Closed')) {
+                        warningText += ' - Market closed';
+                    }
+                    const warningHtml = `<div style="background: rgba(244, 33, 46, 0.2); border: 1px solid var(--danger); border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.75rem; color: var(--danger); display: inline-flex; align-items: center; gap: 0.5rem;">
                         ⚠️ <strong>${warningText}</strong>
                     </div>`;
                     document.getElementById('weekend-warning-inline').innerHTML = warningHtml;
