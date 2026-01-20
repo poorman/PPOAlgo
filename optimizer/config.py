@@ -21,8 +21,7 @@ DB_CONFIG = {
     "port": int(os.getenv("POSTGRES_PORT", "5432")),
 }
 
-# Widesurf API configuration
-WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "GV6VaiYR7Vp1ZpLnXKCe6rt1Q4c0Ymv34I5Io5jyx0I")
+WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "fBSeqEXdadgP6-E28H0CsNgf1levUtJFrEj-xgp208U")
 WIDESURF_API_URL = os.getenv("WIDESURF_API_URL", "http://10.0.0.94:8020")
 
 # Massive.com API configuration

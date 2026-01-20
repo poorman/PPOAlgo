@@ -20,7 +20,7 @@ from config import PPOALGO_API, WIDESURF_API_KEY, WIDESURF_API_URL, MASSIVE_API_
 # Fallback for API credentials (not in all config versions)
 ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID", "PKYAH5AZB64NRG2UB6QT3ISHPG")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets/v2")
-WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "GV6VaiYR7Vp1ZpLnXKCe6rt1Q4c0Ymv34I5Io5jyx0I")
+WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "fBSeqEXdadgP6-E28H0CsNgf1levUtJFrEj-xgp208U")
 WIDESURF_API_URL = os.getenv("WIDESURF_API_URL", "http://10.0.0.94:8020")
 
 
