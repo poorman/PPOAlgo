@@ -7,6 +7,7 @@ Saves optimization results to PostgreSQL database.
 
 import os
 import json
+import config
 import asyncio
 from datetime import datetime, time, timedelta
 from typing import Dict, List, Optional
@@ -749,7 +750,7 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
 # ============================================================================
 
 # Widesurf API configuration
-WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "2dGHYc_tyYrv33MKR1o9CG9ZTj27u2l7DDLpvQix9S8")
+WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "2vOf7y2q0qrEkRI4NYOIAprAhFaEoHKglZMGrG2GUgE")
 WIDESURF_API_URL = os.getenv("WIDESURF_API_URL", "http://10.0.0.94:3000")
 
 def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, timeframe: str = "1Min") -> list:
@@ -868,13 +869,15 @@ app.include_router(history_router)
 app.include_router(ai100_router)
 
 # Import database functions
-from database import get_db_conn, ensure_tables, save_job_to_db, save_result_to_db, update_job_status, get_results_from_db, convert_numpy_types
+from database import get_db_conn, ensure_tables, save_job_to_db, save_result_to_db, update_job_status, get_results_from_db, convert_numpy_types, ensure_keyword_configs_table, get_keyword_configs, save_all_keyword_configs, ensure_api_keys_table, get_api_keys, save_api_key
 
 
 @app.on_event("startup")
 def startup():
     """Initialize database tables on startup."""
     ensure_tables()
+    ensure_keyword_configs_table()
+    ensure_api_keys_table()
 
 
 # ============================================================================
@@ -886,6 +889,7 @@ async def get_widesurf_tickers(keyword: str):
     """
     Proxy endpoint to fetch stock tickers from Widesurf API.
     Avoids CORS issues when frontend calls external APIs directly.
+    Uses keyword configurations from the database.
     
     Args:
         keyword: One of 'SPY500', 'NASDAQ500', or '1000'
@@ -893,22 +897,35 @@ async def get_widesurf_tickers(keyword: str):
     Returns:
         List of stock tickers
     """
-    # Define API URLs for each keyword
-    # Note: The exchange filter doesn't work reliably, so we use limit-based filtering
-    api_urls = {
-        'SPY500': f"https://api.widesurf.com/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
-        'NASDAQ500': f"https://api.widesurf.com/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
-        '1000': f"https://api.widesurf.com/v1/reference/tickers?market=stocks&active=true&order=desc&limit=1000&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}"
-    }
-    
     keyword_upper = keyword.upper()
-    if keyword_upper not in api_urls:
+    valid_keywords = ['SPY500', 'NASDAQ500', '1000']
+    
+    if keyword_upper not in valid_keywords:
         return {"success": False, "error": f"Unknown keyword: {keyword}. Valid options: SPY500, NASDAQ500, 1000"}
     
-    url = api_urls[keyword_upper]
+    # Fetch keyword configurations from the database
+    try:
+        keyword_configs = get_keyword_configs()
+    except Exception as e:
+        logger.error(f"Failed to get keyword configs: {e}")
+        keyword_configs = {}
+    
+    # Get the URL from keyword configuration, or use default fallback
+    keyword_data = keyword_configs.get(keyword_upper, {})
+    url = keyword_data.get("api_url", "")
+    
+    # Fallback to hardcoded defaults if not configured
+    if not url or not url.startswith("http"):
+        default_urls = {
+            'SPY500': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
+            'NASDAQ500': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
+            '1000': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=1000&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}"
+        }
+        url = default_urls.get(keyword_upper)
+        logger.info(f"Using fallback URL for {keyword_upper} (no database config found)")
     
     try:
-        logger.info(f"Fetching {keyword_upper} tickers from Widesurf API")
+        logger.info(f"Fetching {keyword_upper} tickers from Widesurf API: {url[:80]}...")
         resp = requests.get(url, timeout=30)
         
         if resp.status_code != 200:
@@ -938,6 +955,173 @@ async def get_widesurf_tickers(keyword: str):
         return {"success": False, "error": "API request timed out"}
     except Exception as e:
         logger.error(f"Widesurf API error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ============================================================================
+# KEYWORD CONFIGURATIONS API
+# ============================================================================
+
+# Stock lists for static keywords
+SPY_500_STOCKS = "NVDA,AAPL,GOOG,GOOGL,MSFT,AMZN,AVGO,META,TSLA,BRK.B,WMT,LLY,JPM,V,ORCL,JNJ,MA,XOM,PLTR,NFLX,BAC,ABBV,COST,AMD,HD,PG,CSCO,UNH,GE,CVX,KO,CAT,WFC,IBM,MU,MS,GS,AXP,CRM,MRK,APP,RTX,PM,MCD,TMUS,TMO,AMAT,ABT,LRCX,PEP,C,DIS,ISRG,QCOM,GEV,BX,INTC,LIN,INTU,NOW,BLK,UBER,TJX,SCHW,T,AMGN,APH,BKNG,VZ,ANET,NEE,ACN,TXN,DHR,KLAC,GILD,BA,COF,SPGI,PFE,ADBE,UNP,LOW,ADI,ETN,BSX,PGR,SYK,PANW,CRWD,DE,MDT,KKR,WELL,PLD,HON,CB,COP,CEG,PH,VRTX,HOOD,HCA,LMT,NEM,ADP,BMY,CVS,MCK,CMCSA,NKE,MO,CME,DASH,SBUX,SO,ICE,GD,DELL,CDNS,SNPS,MMC,MMM,TT,DUK,APO,MCO,WM,UPS,AMT,USB,PNC,BK,GLW,SHW,ELV,NOC,MAR,ORLY,HWM,EMR,ABNB,REGN,RCL,CTAS,GM,ITW,AON,WMB,TDG,EQIX,ECL,WBD,CI,COIN,CMI,JCI,TEL,MNST,PWR,MDLZ,CSX,FCX,SPG,FDX,STX,COR,NSC,RSG,HLT,WDC,ADSK,AJG,TFC,TRV,CL,FTNT,MSI,AEP,SLB,KMI,EOG,PCAR,ROST,VST,WDAY,NXPI,SRE,PSX,PYPL,AZO,BDX,AFL,IDXX,MPC,DLR,F,APD,LHX,MET,ALL,NDAQ,URI,O,DDOG,VLO,ZTS,EA,D,GWW,EW,PSA,ROP,FAST,CAH,CBRE,MPWR,AME,BKR,ROK,OKE,AMP,CMG,AXON,DAL,CARR,DHI,FANG,TTWO,LVS,AIG,CTVA,XEL,TGT,EXC,FICO,ETR,MSCI,PAYX,YUM,PRU,OXY,GRMN,CTSH,A,KDP,CCI,KR,TRGP,TKO,VMC,PEG,GEHC,XYZ,IQV,EBAY,NUE,MLM,EL,HIG,CPRT,MCHP,WAB,HSY,RMD,KEYS,FISV,VTR,CCL,STT,SYY,SNDK,UAL,EQT,FIS,ED,EXPE,KMB,OTIS,XYL,ACGL,WEC,ODFL,KVUE,IR,LYV,NRG,PCG,HPE,RJF,HUM,FITB,TER,FOXA,MTB,WTW,CHTR,SYF,VRSK,VICI,FOX,EXR,LEN,IBKR,FSLR,DG,MTD,KHC,ADM,EME,ROL,CSGP,HBAN,DOV,TSCO,EXE,BRO,DTE,BR,ATO,EFX,DXCM,NTRS,WRB,ULTA,AEE,CBOE,STZ,IRM,DLTR,CINF,FE,AWK,ES,OMC,BIIB,TPR,STLD,CFG,JBL,AVB,PHM,STE,PPL,GIS,HUBB,TDY,VLTO,HAL,RF,CNP,LDOS,EQR,NTAP,DVN,WAT,HPQ,PPG,TROW,VRSN,KEY,WSM,ON,RL,EIX,LULU,CPAY,LH,L,NVR,DRI,PTC,CMS,LUV,TSN,PODD,IP,SBAC,EXPD,TPL,SMCI,DGX,CTRA,PFG,CHD,NI,CNC,TRMB,SW,WST,TYL,CDW,GPN,AMCR,JBHT,CHRW,INCY,GPC,PKG,ZBH,SNA,LII,BG,TTD,Q,MKC,FTV,DOW,DD,PNR,APTV,ESS,GEN,GDDY,EVRG,IT,WY,LNT,HOLX,INVH,J,IFF,COO,MAA,ALB,BBY,PSKY,FFIV,TXT,NWS,DECK,DPZ,ERIE,NWSA,LYB,SOLV,ALLE,AVY,UHS,ZBRA,KIM,EG,IEX,JKHY,MAS,VTRS,BALL,NDSN,HRL,UDR,WYNN,HII,BXP,HST,REG,CLX,AKAM,CF,BEN,BLDR,IVZ,SWK,DOC,HAS,RVTY,ALGN,EPAM,MRNA,AIZ,CPT,GL,DAY,FDS,SJM,PNW,MGM,SWKS,AES,GNRC,BAX,CRL,AOS,TECH,NCLH,TAP,APA,PAYC,HSIC,POOL,MOH,FRT,DVA,CPB,CAG,LW,MOS,SOLS,LKQ,ARE,MTCH,MHK"
+
+CAP_STOCK_LIST = "AAPL,MSFT,NVDA,GOOGL,GOOG,AMZN,META,BRK.A,BRK.B,LLY,AVGO,TSLA,JPM,V,UNH,XOM,MA,JNJ,HD,COST,PG,ABBV,MRK,ORCL,CRM,KO,PEP,ADBE,WMT,NFLX,AMD,LIN,CSCO,ACN,MCD,TMO,INTU,DIS,NKE,ABT,CVX,TXN,AMGN,IBM,PM,UPS,LOW,NEE,RTX,MS,GS,SPGI,BLK,ISRG,QCOM,CAT,DE,SBUX,EL,PLD,MDT,AMAT,ADI,LMT,GE,AXP,CB,MMC,CI,MO,BDX,ZTS,ICE,DUK,SO,EQIX,SHW,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,ADP,PAYX,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,ROKU,SPOT,UBER,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,ALK,BA,GD,NOC,LHX,TDG,URI,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,RSG,AWK,PCAR,CUMM,ALB,FCX,NEM,AA,STLD,NUE,CE,LYB,DOW,EMN,APTV,F,ROK,KEYS,AME,IR,XYL,TT,WAB,EFX,MTB,HBAN,RF,TFC,CFG,STT,NTRS,BK,AMP,IVZ,DFS,SYF,COIN,MSTR,RIOT,MARA,CHTR,CMCSA,VZ,T,TMUS,ZS,OKTA,WDAY,NOW,SQ,PYPL,INTC,TSM,ASML,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,FSLR,PLUG,BLDP,CHPT,QS,ON,STM,NXPI,INFY,CTSH,EPAM,DXC,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,SMAR,PSTG,NTNX,VMW,LOGI,EA,TTWO,MTCH,BMBL,PLTR,AI,UPST,AFRM,SOFI,HOOD,CLS,ONTO,FORM,SMCI,GRMN,TRMB,IRDM,VSAT,ASTS,RKLB,JOBY,ACHR,PL,MAXR,SPCE"
+
+FULL_STOCK_LIST = "AAPL,MSFT,GOOGL,GOOG,AMZN,NVDA,META,TSLA,BRK.B,BRK.A,JPM,V,JNJ,UNH,HD,PG,MA,XOM,LLY,AVGO,CVX,MRK,COST,ABBV,PEP,KO,ORCL,CRM,ADBE,AMD,NFLX,TMO,WMT,DIS,ACN,LIN,MCD,CSCO,ABT,TXN,DHR,INTU,CAT,VZ,CMCSA,NEE,BAC,WFC,PM,UPS,RTX,IBM,MS,PFE,INTC,LOW,UNP,AMGN,SPGI,GS,AXP,BLK,ISRG,QCOM,AMAT,DE,GE,NKE,MDT,ADI,LMT,SBUX,PLD,CB,CVS,MMC,TGT,MO,CI,BDX,ZTS,EL,DUK,SO,EQIX,ICE,SHW,CL,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,PAYX,ADP,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,OKTA,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,SNAP,ROKU,SPOT,UBER,LYFT,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,JBLU,ALK,BA,TXT,SPR,GD,NOC,HII,LHX,TDG,HEI,MTZ,PWR,URI,WSM,BBY,GPC,AZO,KMX,AN,SAH,PAG,TSCO,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,PENN,CZR,RSG,AWK,PCAR,ALB,FCX,NEM,GOLD,AA,CLF,STLD,NUE,RS,X,MT,CE,LYB,DOW,EMN,APTV,F,LCID,RIVN,FSR,NIO,XPEV,LI,HMC,TM,POR,OGE,NRG,AES,ET,EPD,MPLX,PAA,KMI,WMB,OKE,ENB,TRP,EXAS,IQV,CTLT,CRL,INCY,ALNY,NBIX,UTHR,BMRN,SRPT,FOLD,PTCT,RARE,BLUE,EDIT,NTLA,CRSP,BEAM,AMED,SEM,HCA,UHS,CNC,MOH,ELV,MDGL,AXSM,GH,PACB,TXG,VCYT,NTRA,CDNA,MYGN,BTX,OMCL,CERS,TRMB,GRMN,IRDM,VSAT,ASTS,PLTR,SOUN,AI,BBAI,UPST,AFRM,SOFI,HOOD,COIN,MSTR,RIOT,MARA,CLSK,ONTO,FORM,ASML,TSM,UMC,SMCI,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,CSIQ,FSLR,ARRY,NEP,BEP,BEPC,PLUG,BLDP,FCEL,CHPT,EVGO,QS,FREY,ALGM,ON,STM,NXPI,INFY,WIT,CTSH,EPAM,DXC,TCS,SAP,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,WK,BL,SMAR,PSTG,NTNX,VMW,LOGI,SONY,EA,TTWO,MTCH,BMBL,SPCE,RKLB,ASTR,MAXR,PL,JOBY,ACHR,EH"
+
+
+def get_default_keyword_configs():
+    """Get default keyword configurations."""
+    return {
+        "ALL": {
+            "api_url": SPY_500_STOCKS,
+            "description": "SPY 500 stocks (~500)"
+        },
+        "CAP": {
+            "api_url": CAP_STOCK_LIST,
+            "description": "Large Cap Focus (~280 stocks)"
+        },
+        "FULL": {
+            "api_url": FULL_STOCK_LIST,
+            "description": "Extended Sectors (~300 stocks)"
+        },
+        "SPY500": {
+            "api_url": f"https://api.widesurf.com/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
+            "description": "Top 500 stocks by volume (Widesurf API)"
+        },
+        "NASDAQ500": {
+            "api_url": f"https://api.widesurf.com/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
+            "description": "Top 500 NASDAQ stocks by volume (Widesurf API)"
+        },
+        "1000": {
+            "api_url": f"https://api.widesurf.com/v1/reference/tickers?market=stocks&active=true&order=desc&limit=1000&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
+            "description": "Top 1000 stocks by volume (Widesurf API)"
+        }
+    }
+
+
+@app.get("/api/keywords")
+async def get_keywords_api():
+    """Get all keyword configurations."""
+    try:
+        # Get saved configs from database
+        db_configs = get_keyword_configs()
+        defaults = get_default_keyword_configs()
+        
+        # Merge with defaults (DB takes precedence)
+        result = {}
+        for keyword in ["ALL", "CAP", "FULL", "SPY500", "NASDAQ500", "1000"]:
+            if keyword in db_configs and db_configs[keyword].get("api_url"):
+                result[keyword] = db_configs[keyword]
+            else:
+                result[keyword] = defaults.get(keyword, {"api_url": "", "description": ""})
+        
+        return {"success": True, "keywords": result}
+    except Exception as e:
+        logger.error(f"Failed to get keywords: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.put("/api/keywords")
+async def save_keywords_api(request: dict):
+    """Save keyword configurations."""
+    try:
+        configs = request.get("keywords", {})
+        if not configs:
+            return {"success": False, "error": "No keywords provided"}
+        
+        success = save_all_keyword_configs(configs)
+        if success:
+            return {"success": True, "message": f"Saved {len(configs)} keyword configurations"}
+        else:
+            return {"success": False, "error": "Failed to save to database"}
+    except Exception as e:
+        logger.error(f"Failed to save keywords: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ============================================================================
+# API KEY MANAGEMENT
+# ============================================================================
+
+def mask_secret(secret: str) -> str:
+    """Mask a secret key for security."""
+    if not secret:
+        return ""
+    if len(secret) <= 8:
+        return "********"
+    return secret[:4] + "********" + secret[-4:]
+
+
+@app.get("/api/keys")
+async def get_api_keys_api():
+    """Get all stored API keys with masked secrets, falling back to config.py defaults."""
+    try:
+        db_keys = get_api_keys()
+        
+        # Default keys from config.py
+        defaults = {
+            "ALPACA": {
+                "key_id": config.ALPACA_API_KEY_ID,
+                "secret_key": config.ALPACA_API_SECRET_KEY,
+                "base_url": config.ALPACA_BASE_URL
+            },
+            "MASSIVE": {
+                "key_id": "",
+                "secret_key": config.MASSIVE_API_KEY,
+                "base_url": config.MASSIVE_API_URL
+            },
+            "WIDESURF": {
+                "key_id": "",
+                "secret_key": config.WIDESURF_API_KEY,
+                "base_url": config.WIDESURF_API_URL
+            }
+        }
+        
+        # Merge DB keys with defaults
+        final_keys = {}
+        providers = ["ALPACA", "MASSIVE", "WIDESURF"]
+        
+        for provider in providers:
+            db_data = db_keys.get(provider, {})
+            default_data = defaults.get(provider, {})
+            
+            final_keys[provider] = {
+                "key_id": db_data.get("key_id") or default_data.get("key_id", ""),
+                "secret_key": mask_secret(db_data.get("secret_key") or default_data.get("secret_key", "")),
+                "base_url": db_data.get("base_url") or default_data.get("base_url", "")
+            }
+            
+        return {"success": True, "keys": final_keys}
+    except Exception as e:
+        logger.error(f"Failed to get API keys: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.put("/api/keys")
+async def save_api_keys_api(request: dict):
+    """Save API keys to the database."""
+    try:
+        keys_data = request.get("keys", {})
+        if not keys_data:
+            return {"success": False, "error": "No keys provided"}
+            
+        success_count = 0
+        for provider, data in keys_data.items():
+            key_id = data.get("key_id")
+            secret_key = data.get("secret_key")
+            base_url = data.get("base_url")
+            
+            # If the secret_key is masked, don't update it in the DB
+            if secret_key and "********" in secret_key:
+                secret_key = None
+                
+            if save_api_key(provider.upper(), key_id, secret_key, base_url):
+                success_count += 1
+                
+        return {"success": True, "message": f"Updated {success_count} API providers"}
+    except Exception as e:
+        logger.error(f"Failed to save API keys: {e}")
         return {"success": False, "error": str(e)}
 
 

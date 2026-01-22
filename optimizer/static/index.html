@@ -35,9 +35,23 @@
         }
 
         header {
-            background: linear-gradient(135deg, #1a1f2e 0%, #0f1419 100%);
-            padding: 1.5rem 2rem;
+            background: #111625;
+            padding: 0.4rem 2rem;
             border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header img {
+            height: 44px;
+        }
+
+        header p {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            font-weight: 400;
         }
 
         header h1 {
@@ -62,6 +76,7 @@
             display: grid;
             grid-template-columns: 320px 1fr 320px;
             gap: 1.5rem;
+            align-items: start;
         }
 
         .panel {
@@ -99,7 +114,8 @@
         }
 
         .form-group input,
-        .form-group select {
+        .form-group select,
+        .form-input {
             width: 100%;
             padding: 0.75rem 1rem;
             background: var(--bg-input);
@@ -107,12 +123,15 @@
             border-radius: 8px;
             color: var(--text-primary);
             font-size: 0.875rem;
+            transition: border-color 0.2s;
         }
 
         .form-group input:focus,
-        .form-group select:focus {
+        .form-group select:focus,
+        .form-input:focus {
             outline: none;
             border-color: var(--accent);
+            background: var(--bg-input);
         }
 
         .btn {
@@ -322,22 +341,24 @@
         }
 
         .log-tab {
-            padding: 0.4rem 1rem;
+            padding: 0.5rem 1.25rem;
             background: var(--bg-input);
             border: 1px solid var(--border);
+            border-right: none;
             color: var(--text-secondary);
             cursor: pointer;
-            font-size: 0.8rem;
+            font-size: 0.85rem;
+            font-weight: 500;
             transition: all 0.2s;
         }
 
         .log-tab:first-child {
-            border-radius: 6px 6px 0px 6px;
+            border-radius: 8px 0px 0px 8px;
         }
 
         .log-tab:last-child {
-            border-radius: 6px 6px 6px 6px;
-            border-left: none;
+            border-radius: 0px 8px 8px 0px;
+            border-right: 1px solid var(--border);
         }
 
         .log-tab.active {
@@ -520,7 +541,9 @@
 
         /* History Panel Styles */
         .history-panel {
-            max-height: calc(100vh - 150px);
+            height: fit-content;
+            min-height: 800px;
+            max-height: calc(100vh - 100px);
             overflow-y: auto;
         }
 
@@ -945,7 +968,7 @@
 
 <body>
     <header>
-        <img src="/static/logo.png" alt="Stock Parameter Optimizer" style="height: 60px; margin-bottom: 0.5rem;">
+        <img src="/static/logo.png" alt="Stock Parameter Optimizer">
         <p>Bayesian optimization to find optimal buy/sell triggers for each stock</p>
     </header>
 
@@ -1132,10 +1155,12 @@
         </aside>
 
         <section>
-            <!-- Top tabs for Results / API Tester -->
+            <!-- Top tabs for Results / API Tester / Keywords -->
             <div class="log-tabs" style="margin-bottom: 1rem;">
                 <button class="log-tab active" id="tab-results" onclick="switchTopTab('results')">Results</button>
                 <button class="log-tab" id="tab-api-tester" onclick="switchTopTab('api-tester')">API Tester</button>
+                <button class="log-tab" id="tab-keywords" onclick="switchTopTab('keywords')">Keywords</button>
+                <button class="log-tab" id="tab-api-keys" onclick="switchTopTab('api-keys')">API Keys</button>
             </div>
 
             <!-- API Tester Panel -->
@@ -1306,6 +1331,198 @@
 
                 <div id="api-test-error"
                     style="display: none; padding: 1rem; background: rgba(239,68,68,0.1); border: 1px solid var(--danger); border-radius: 8px; color: var(--danger);">
+                </div>
+            </div>
+
+            <!-- Keywords Configuration Panel -->
+            <div id="keywords-panel"
+                style="display: none; background: var(--card-bg); border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem;">
+                <h3 style="color: var(--accent); margin-bottom: 1rem;">🔑 Keyword API Configurations</h3>
+                <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">
+                    Configure the API URLs for each stock list keyword. These are used when selecting quick keywords in
+                    the Stock Symbols field.
+                </p>
+
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    <!-- ALL Keyword -->
+                    <div
+                        style="background: var(--bg-input); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <strong style="color: #22c55e; min-width: 100px;">ALL</strong>
+                            <span style="color: var(--text-secondary); font-size: 0.75rem;">SPY 500 stocks (~500)</span>
+                        </div>
+                        <input type="text" id="keyword-url-ALL" placeholder="API URL or STATIC:LIST_NAME"
+                            style="width: 100%; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.8rem;" />
+                    </div>
+
+                    <!-- CAP Keyword -->
+                    <div
+                        style="background: var(--bg-input); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <strong style="color: #3b82f6; min-width: 100px;">CAP</strong>
+                            <span style="color: var(--text-secondary); font-size: 0.75rem;">Large Cap Focus
+                                (~280)</span>
+                        </div>
+                        <input type="text" id="keyword-url-CAP" placeholder="API URL or STATIC:LIST_NAME"
+                            style="width: 100%; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.8rem;" />
+                    </div>
+
+                    <!-- FULL Keyword -->
+                    <div
+                        style="background: var(--bg-input); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <strong style="color: #f59e0b; min-width: 100px;">FULL</strong>
+                            <span style="color: var(--text-secondary); font-size: 0.75rem;">Extended Sectors
+                                (~300)</span>
+                        </div>
+                        <input type="text" id="keyword-url-FULL" placeholder="API URL or STATIC:LIST_NAME"
+                            style="width: 100%; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.8rem;" />
+                    </div>
+
+                    <!-- SPY500 Keyword -->
+                    <div
+                        style="background: var(--bg-input); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <strong style="color: #ef4444; min-width: 100px;">SPY500</strong>
+                            <span style="color: var(--text-secondary); font-size: 0.75rem;">Widesurf API - Top 500 by
+                                volume</span>
+                        </div>
+                        <input type="text" id="keyword-url-SPY500"
+                            placeholder="https://api.widesurf.com/v1/reference/tickers?..."
+                            style="width: 100%; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.8rem;" />
+                    </div>
+
+                    <!-- NASDAQ500 Keyword -->
+                    <div
+                        style="background: var(--bg-input); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <strong style="color: #8b5cf6; min-width: 100px;">NASDAQ500</strong>
+                            <span style="color: var(--text-secondary); font-size: 0.75rem;">Widesurf API - NASDAQ 500 by
+                                volume</span>
+                        </div>
+                        <input type="text" id="keyword-url-NASDAQ500"
+                            placeholder="https://api.widesurf.com/v1/reference/tickers?..."
+                            style="width: 100%; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.8rem;" />
+                    </div>
+
+                    <!-- 1000 Keyword -->
+                    <div
+                        style="background: var(--bg-input); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <strong style="color: #a78bfa; min-width: 100px;">1000</strong>
+                            <span style="color: var(--text-secondary); font-size: 0.75rem;">Widesurf API - Top 1000 by
+                                volume</span>
+                        </div>
+                        <input type="text" id="keyword-url-1000"
+                            placeholder="https://api.widesurf.com/v1/reference/tickers?..."
+                            style="width: 100%; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.8rem;" />
+                    </div>
+                </div>
+
+                <!-- Save Button -->
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    <button onclick="saveKeywordConfigs()"
+                        style="flex: 1; padding: 0.75rem 1.5rem; background: var(--accent); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                        💾 Save Keyword Configurations
+                    </button>
+                    <button onclick="loadKeywordConfigs()"
+                        style="padding: 0.75rem 1rem; background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">
+                        🔄 Reload
+                    </button>
+                </div>
+
+                <div id="keywords-status" style="margin-top: 1rem; padding: 0.5rem; border-radius: 6px; display: none;">
+                </div>
+            </div>
+
+            <!-- API Keys Configuration Panel -->
+            <div id="api-keys-panel"
+                style="display: none; background: var(--card-bg); border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem;">
+                <h3 style="color: var(--accent); margin-bottom: 1rem;">🔐 API Secret Keys</h3>
+                <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">
+                    Configure your API keys, secret keys, and base endpoints for various providers.
+                </p>
+
+                <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                    <!-- Alpaca API -->
+                    <div
+                        style="background: var(--bg-card); padding: 1.25rem; border-radius: 12px; border: 1px solid var(--border);">
+                        <h4
+                            style="color: var(--accent); margin-bottom: 1rem; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <span>🦙</span> Alpaca API
+                        </h4>
+                        <div
+                            style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1rem;">
+                            <div class="form-group">
+                                <label>Key ID</label>
+                                <input type="text" id="api-key-alpaca-id" class="form-input"
+                                    placeholder="Alpaca Key ID">
+                            </div>
+                            <div class="form-group">
+                                <label>Secret Key</label>
+                                <input type="password" id="api-key-alpaca-secret" class="form-input"
+                                    placeholder="Alpaca Secret Key">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Base Endpoint</label>
+                            <input type="text" id="api-key-alpaca-url" class="form-input"
+                                placeholder="https://paper-api.alpaca.markets/v2">
+                        </div>
+                    </div>
+
+                    <div
+                        style="background: var(--bg-card); padding: 1.25rem; border-radius: 12px; border: 1px solid var(--border);">
+                        <h4
+                            style="color: var(--accent); margin-bottom: 1rem; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <span>🌊</span> Massive API
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+                            <div class="form-group">
+                                <label>API Key</label>
+                                <input type="password" id="api-key-massive-secret" class="form-input"
+                                    placeholder="Massive API Key">
+                            </div>
+                            <div class="form-group">
+                                <label>Base Endpoint</label>
+                                <input type="text" id="api-key-massive-url" class="form-input"
+                                    placeholder="https://api.massive.com">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div
+                        style="background: var(--bg-card); padding: 1.25rem; border-radius: 12px; border: 1px solid var(--border);">
+                        <h4
+                            style="color: var(--accent); margin-bottom: 1rem; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <span>📈</span> Widesurf API
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+                            <div class="form-group">
+                                <label>API Key</label>
+                                <input type="password" id="api-key-widesurf-secret" class="form-input"
+                                    placeholder="Widesurf API Key">
+                            </div>
+                            <div class="form-group">
+                                <label>Base Endpoint</label>
+                                <input type="text" id="api-key-widesurf-url" class="form-input"
+                                    placeholder="http://10.0.0.94:8020">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    <button class="btn btn-primary" onclick="saveApiKeys()" style="flex: 2;">
+                        💾 Save API Keys
+                    </button>
+                    <button class="btn" onclick="loadApiKeys()"
+                        style="flex: 1; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary);">
+                        🔄 Reload
+                    </button>
+                </div>
+
+                <div id="api-keys-status" style="margin-top: 1rem; padding: 0.5rem; border-radius: 6px; display: none;">
                 </div>
             </div>
 
@@ -1542,29 +1759,112 @@
             document.getElementById('api-test-date').value = chicagoDate;
         });
 
-        // Switch between Results and API Tester tabs
+        // Switch between Results, API Tester, and Keywords tabs
         function switchTopTab(tab) {
             const resultsTab = document.getElementById('tab-results');
             const apiTesterTab = document.getElementById('tab-api-tester');
+            const keywordsTab = document.getElementById('tab-keywords');
+            const apiKeysTab = document.getElementById('tab-api-keys');
             const resultsContainer = document.getElementById('results');
             const apiTesterPanel = document.getElementById('api-tester-panel');
+            const keywordsPanel = document.getElementById('keywords-panel');
+            const apiKeysPanel = document.getElementById('api-keys-panel');
             // Get log tabs by finding the second .log-tabs element (first is top tabs)
             const allLogTabs = document.querySelectorAll('.log-tabs');
             const bottomLogTabs = allLogTabs.length > 1 ? allLogTabs[1] : null;
-            const logContainer = document.getElementById('log');
-            const analysisContainer = document.getElementById('analysis');
+
+            // Reset all tabs
+            resultsTab.classList.remove('active');
+            apiTesterTab.classList.remove('active');
+            keywordsTab.classList.remove('active');
+            apiKeysTab.classList.remove('active');
+            resultsContainer.style.display = 'none';
+            apiTesterPanel.style.display = 'none';
+            keywordsPanel.style.display = 'none';
+            apiKeysPanel.style.display = 'none';
 
             if (tab === 'results') {
                 resultsTab.classList.add('active');
-                apiTesterTab.classList.remove('active');
                 resultsContainer.style.display = 'flex';
-                apiTesterPanel.style.display = 'none';
-            } else {
-                resultsTab.classList.remove('active');
+            } else if (tab === 'api-tester') {
                 apiTesterTab.classList.add('active');
-                resultsContainer.style.display = 'none';
                 apiTesterPanel.style.display = 'block';
-                // Keep bottom section (Status/Analysis + trade log) visible
+            } else if (tab === 'keywords') {
+                keywordsTab.classList.add('active');
+                keywordsPanel.style.display = 'block';
+                loadKeywordConfigs();
+            } else if (tab === 'api-keys') {
+                apiKeysTab.classList.add('active');
+                apiKeysPanel.style.display = 'block';
+                loadApiKeys();
+            }
+        }
+
+        // Load keyword configurations from API
+        async function loadKeywordConfigs() {
+            try {
+                const response = await fetch('/api/keywords');
+                const data = await response.json();
+
+                if (data.success && data.keywords) {
+                    const keywords = ['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000'];
+                    keywords.forEach(keyword => {
+                        const input = document.getElementById(`keyword-url-${keyword}`);
+                        if (input && data.keywords[keyword]) {
+                            input.value = data.keywords[keyword].api_url || '';
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load keyword configs:', error);
+            }
+        }
+
+        // Save keyword configurations to API
+        async function saveKeywordConfigs() {
+            const statusDiv = document.getElementById('keywords-status');
+            const keywords = ['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000'];
+            const configs = {};
+
+            keywords.forEach(keyword => {
+                const input = document.getElementById(`keyword-url-${keyword}`);
+                if (input) {
+                    configs[keyword] = {
+                        api_url: input.value.trim(),
+                        description: ''
+                    };
+                }
+            });
+
+            try {
+                const response = await fetch('/api/keywords', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keywords: configs })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.background = 'rgba(34, 197, 94, 0.1)';
+                    statusDiv.style.border = '1px solid #22c55e';
+                    statusDiv.style.color = '#22c55e';
+                    statusDiv.textContent = '✅ Keyword configurations saved successfully!';
+                    setTimeout(() => { statusDiv.style.display = 'none'; }, 3000);
+                } else {
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+                    statusDiv.style.border = '1px solid #ef4444';
+                    statusDiv.style.color = '#ef4444';
+                    statusDiv.textContent = '❌ Failed to save: ' + (data.error || 'Unknown error');
+                }
+            } catch (error) {
+                console.error('Failed to save keyword configs:', error);
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+                statusDiv.style.border = '1px solid #ef4444';
+                statusDiv.style.color = '#ef4444';
+                statusDiv.textContent = '❌ Error: ' + error.message;
             }
         }
 
@@ -3263,8 +3563,84 @@
         // Add event listener for smart timing checkbox
         document.getElementById('smart-timing').addEventListener('change', toggleTimingApproach);
 
+        async function loadApiKeys() {
+            try {
+                const response = await fetch('/api/keys');
+                const data = await response.json();
+
+                if (data.success) {
+                    const keys = data.keys;
+                    if (keys.ALPACA) {
+                        document.getElementById('api-key-alpaca-id').value = keys.ALPACA.key_id || '';
+                        document.getElementById('api-key-alpaca-secret').value = keys.ALPACA.secret_key || '';
+                        document.getElementById('api-key-alpaca-url').value = keys.ALPACA.base_url || '';
+                    }
+                    if (keys.MASSIVE) {
+                        document.getElementById('api-key-massive-secret').value = keys.MASSIVE.secret_key || '';
+                        document.getElementById('api-key-massive-url').value = keys.MASSIVE.base_url || '';
+                    }
+                    if (keys.WIDESURF) {
+                        document.getElementById('api-key-widesurf-secret').value = keys.WIDESURF.secret_key || '';
+                        document.getElementById('api-key-widesurf-url').value = keys.WIDESURF.base_url || '';
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load API keys:', error);
+            }
+        }
+
+        async function saveApiKeys() {
+            const statusDiv = document.getElementById('api-keys-status');
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = 'rgba(255, 255, 255, 0.1)';
+            statusDiv.innerHTML = 'Saving...';
+            statusDiv.style.color = 'var(--text-secondary)';
+
+            const keys = {
+                ALPACA: {
+                    key_id: document.getElementById('api-key-alpaca-id').value,
+                    secret_key: document.getElementById('api-key-alpaca-secret').value,
+                    base_url: document.getElementById('api-key-alpaca-url').value
+                },
+                MASSIVE: {
+                    secret_key: document.getElementById('api-key-massive-secret').value,
+                    base_url: document.getElementById('api-key-massive-url').value
+                },
+                WIDESURF: {
+                    secret_key: document.getElementById('api-key-widesurf-secret').value,
+                    base_url: document.getElementById('api-key-widesurf-url').value
+                }
+            };
+
+            try {
+                const response = await fetch('/api/keys', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keys })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    statusDiv.style.background = 'rgba(72, 187, 120, 0.1)';
+                    statusDiv.style.color = '#48bb78';
+                    statusDiv.innerHTML = '✅ API Keys saved successfully!';
+                    setTimeout(() => {
+                        statusDiv.style.display = 'none';
+                        loadApiKeys(); // Reload to get masked values
+                    }, 3000);
+                } else {
+                    throw new Error(data.error || 'Unknown error');
+                }
+            } catch (error) {
+                statusDiv.style.background = 'rgba(245, 101, 101, 0.1)';
+                statusDiv.style.color = '#f56565';
+                statusDiv.innerHTML = '❌ Failed to save API keys: ' + error.message;
+            }
+        }
+
         // Initialize
         loadConfig();
+        loadApiKeys();
         setupConfigAutoSave();
         connectWebSocket();
         loadHistory();

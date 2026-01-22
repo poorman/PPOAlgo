@@ -9,6 +9,7 @@ import os
 # API Configuration
 PPOALGO_API = os.getenv("PPOALGO_API", "http://ppoalgo_api_1:8000")
 ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID", "PKYAH5AZB64NRG2UB6QT3ISHPG")
+ALPACA_API_SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "8JkZZALJL4uGA2bn3kY28UaBaiGAPRizaTpQt71U87uD")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets/v2")
 RESULTS_DIR = "/app/results"
 
@@ -21,7 +22,7 @@ DB_CONFIG = {
     "port": int(os.getenv("POSTGRES_PORT", "5432")),
 }
 
-WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "fBSeqEXdadgP6-E28H0CsNgf1levUtJFrEj-xgp208U")
+WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "2vOf7y2q0qrEkRI4NYOIAprAhFaEoHKglZMGrG2GUgE")
 WIDESURF_API_URL = os.getenv("WIDESURF_API_URL", "http://10.0.0.94:8020")
 
 # Massive.com API configuration

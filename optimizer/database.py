@@ -318,3 +318,183 @@ def get_results_from_db(symbol: str = None) -> List[dict]:
         return []
     finally:
         conn.close()
+
+
+# ============================================================================
+# KEYWORD CONFIGURATIONS
+# ============================================================================
+
+def ensure_keyword_configs_table():
+    """Create keyword_configs table if it doesn't exist."""
+    conn = get_db_conn()
+    if not conn:
+        return
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS keyword_configs (
+                    id SERIAL PRIMARY KEY,
+                    keyword VARCHAR(20) UNIQUE NOT NULL,
+                    api_url TEXT NOT NULL,
+                    description TEXT,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            """)
+        conn.commit()
+        logger.info("keyword_configs table ensured")
+    except Exception as e:
+        logger.error(f"Failed to create keyword_configs table: {e}")
+    finally:
+        conn.close()
+
+
+def get_keyword_configs() -> dict:
+    """Get all keyword configurations from database."""
+    conn = get_db_conn()
+    if not conn:
+        return {}
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT keyword, api_url, description FROM keyword_configs
+            """)
+            rows = cur.fetchall()
+            return {row[0]: {"api_url": row[1], "description": row[2]} for row in rows}
+    except Exception as e:
+        logger.error(f"Failed to get keyword configs: {e}")
+        return {}
+    finally:
+        conn.close()
+
+
+def save_keyword_config(keyword: str, api_url: str, description: str = None):
+    """Save or update a keyword configuration."""
+    conn = get_db_conn()
+    if not conn:
+        return False
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO keyword_configs (keyword, api_url, description, updated_at)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (keyword) DO UPDATE SET
+                    api_url = EXCLUDED.api_url,
+                    description = EXCLUDED.description,
+                    updated_at = NOW()
+            """, (keyword.upper(), api_url, description))
+        conn.commit()
+        logger.info(f"Saved keyword config: {keyword}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save keyword config: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def save_all_keyword_configs(configs: dict) -> bool:
+    """Save multiple keyword configurations at once."""
+    conn = get_db_conn()
+    if not conn:
+        return False
+    
+    try:
+        with conn.cursor() as cur:
+            for keyword, data in configs.items():
+                api_url = data.get("api_url", "")
+                description = data.get("description", "")
+                cur.execute("""
+                    INSERT INTO keyword_configs (keyword, api_url, description, updated_at)
+                    VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (keyword) DO UPDATE SET
+                        api_url = EXCLUDED.api_url,
+                        description = EXCLUDED.description,
+                        updated_at = NOW()
+                """, (keyword.upper(), api_url, description))
+        conn.commit()
+        logger.info(f"Saved {len(configs)} keyword configs")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save keyword configs: {e}")
+        return False
+    finally:
+        conn.close()
+
+# ============================================================================
+# API KEY CONFIGURATIONS
+# ============================================================================
+
+def ensure_api_keys_table():
+    """Create api_keys table if it doesn't exist."""
+    conn = get_db_conn()
+    if not conn:
+        return
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id SERIAL PRIMARY KEY,
+                    provider VARCHAR(50) UNIQUE NOT NULL,
+                    key_id TEXT,
+                    secret_key TEXT,
+                    base_url TEXT,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            """)
+        conn.commit()
+        logger.info("api_keys table ensured")
+    except Exception as e:
+        logger.error(f"Failed to create api_keys table: {e}")
+    finally:
+        conn.close()
+
+
+def get_api_keys() -> dict:
+    """Get all API keys from database."""
+    conn = get_db_conn()
+    if not conn:
+        return {}
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT provider, key_id, secret_key, base_url FROM api_keys
+            """)
+            rows = cur.fetchall()
+            return {row[0]: {"key_id": row[1], "secret_key": row[2], "base_url": row[3]} for row in rows}
+    except Exception as e:
+        logger.error(f"Failed to get api keys: {e}")
+        return {}
+    finally:
+        conn.close()
+
+
+def save_api_key(provider: str, key_id: str = None, secret_key: str = None, base_url: str = None):
+    """Save or update an API key configuration."""
+    conn = get_db_conn()
+    if not conn:
+        return False
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO api_keys (provider, key_id, secret_key, base_url, updated_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (provider) DO UPDATE SET
+                    key_id = COALESCE(EXCLUDED.key_id, api_keys.key_id),
+                    secret_key = COALESCE(EXCLUDED.secret_key, api_keys.secret_key),
+                    base_url = COALESCE(EXCLUDED.base_url, api_keys.base_url),
+                    updated_at = NOW()
+            """, (provider.upper(), key_id, secret_key, base_url))
+        conn.commit()
+        logger.info(f"Saved API key for provider: {provider}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save API key: {e}")
+        return False
+    finally:
+        conn.close()
