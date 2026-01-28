@@ -2086,7 +2086,7 @@
             document.querySelectorAll('.trade-row.selected').forEach(row => row.classList.remove('selected'));
 
             // Highlight selected row
-            const selectedRow = document.querySelector(`[data - trade - index= "${tradeIndex}"]`);
+            const selectedRow = document.querySelector(`[data-trade-index="${tradeIndex}"]`);
             if (selectedRow) selectedRow.classList.add('selected');
 
             const date = t.date ? t.date.substring(0, 10) : 'Unknown';
@@ -2098,56 +2098,56 @@
 
             const pctFrom10amToOpen = t.open > 0 && t.price_10am ? (((t.price_10am - t.open) / t.open) * 100).toFixed(2) : '0';
 
-            let html = `< div class="trade-explanation-panel" > `;
-            html += `< div class="explanation-title" >
+            let html = `<div class="trade-explanation-panel">`;
+            html += `<div class="explanation-title">
                 <span>📅 ${date} — ${t.bought ? '✅ Trade Executed' : '❌ Trade Skipped'}</span>
                 <button class="explanation-close" onclick="closeTradeExplanation()">✕</button>
-            </div > `;
+            </div>`;
 
             if (isVWAP) {
                 // VWAP Strategy Explanation
-                html += `< div class="explanation-section" > `;
-                html += `< div class="explanation-section-title" >📊 Market Snapshot at 10:00 AM</div > `;
-                html += `< div style = "color: #e2e8f0; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;" > `;
-                html += `• The stock < b > opened</b > the day at < b > $${open}</b > <br>`;
+                html += `<div class="explanation-section">`;
+                html += `<div class="explanation-section-title">📊 Market Snapshot at 10:00 AM</div>`;
+                html += `<div style="color: #e2e8f0; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;">`;
+                html += `• The stock <b>opened</b> the day at <b>$${open}</b><br>`;
                 html += `• By <b>10:00 AM</b>, the price moved to <b>$${price10am}</b> — that's <b>${pctFrom10amToOpen >= 0 ? '+' : ''}${pctFrom10amToOpen}%</b> from open<br>`;
                 html += `• The <b>VWAP</b> (Volume Weighted Average Price = the "fair" price where most volume traded) was <b>$${vwap}</b>`;
                 html += `</div></div>`;
 
-                html += `< div class="explanation-section" > `;
-                html += `< div class="explanation-section-title" >🎯 Entry Conditions Checked(ALL must pass)</div > `;
+                html += `<div class="explanation-section">`;
+                html += `<div class="explanation-section-title">🎯 Entry Conditions Checked (ALL must pass)</div>`;
 
                 const priceAboveVwap = t.price_10am > t.vwap && t.vwap > 0;
                 const skipReason = t.skip_reason || '';
 
                 const c1Pass = priceAboveVwap;
-                html += `< div class="explanation-check ${c1Pass ? 'pass' : 'fail'}" > `;
-                html += `< span style = "font-size: 1.1rem;" > ${c1Pass ? '✓' : '✗'}</span > `;
-                html += `< div > <b>Price > VWAP:</b> Is $${price10am} above $${vwap}?<br>`;
+                html += `<div class="explanation-check ${c1Pass ? 'pass' : 'fail'}">`;
+                html += `<span style="font-size: 1.1rem;">${c1Pass ? '✓' : '✗'}</span>`;
+                html += `<div><b>Price > VWAP:</b> Is $${price10am} above $${vwap}?<br>`;
                 html += c1Pass ? `<i>YES! The stock is trading above its average price — signs of strength.</i>` : `<i>NO. The stock is trading below average — too weak to buy.</i>`;
-                html += `</div></div > `;
+                html += `</div></div>`;
 
                 const c2Pass = !skipReason.includes('slope');
-                html += `< div class="explanation-check ${c2Pass ? 'pass' : 'fail'}" > `;
-                html += `< span style = "font-size: 1.1rem;" > ${c2Pass ? '✓' : '✗'}</span > `;
-                html += `< div ><b>VWAP Trending Up (Slope > 0):</b><br>`;
+                html += `<div class="explanation-check ${c2Pass ? 'pass' : 'fail'}">`;
+                html += `<span style="font-size: 1.1rem;">${c2Pass ? '✓' : '✗'}</span>`;
+                html += `<div><b>VWAP Trending Up (Slope > 0):</b><br>`;
                 html += c2Pass ? `<i>YES! VWAP is rising between 9:40-10AM — buyers are in control.</i>` : `<i>NO. VWAP is falling — sellers are dominating, skip this trade.</i>`;
-                html += `</div></div > `;
+                html += `</div></div>`;
 
                 const c3Pass = !skipReason.includes('stretch');
-                html += `< div class="explanation-check ${c3Pass ? 'pass' : 'fail'}" > `;
-                html += `< span style = "font-size: 1.1rem;" > ${c3Pass ? '✓' : '✗'}</span > `;
-                html += `< div ><b>Price Not Overextended (Stretch < 0.5×Volatility):</b><br>`;
+                html += `<div class="explanation-check ${c3Pass ? 'pass' : 'fail'}">`;
+                html += `<span style="font-size: 1.1rem;">${c3Pass ? '✓' : '✗'}</span>`;
+                html += `<div><b>Price Not Overextended (Stretch < 0.5×Volatility):</b><br>`;
                 html += c3Pass ? `<i>YES! Price is close enough to VWAP — safe entry point.</i>` : `<i>NO. Price has run up too far above VWAP — chasing would be risky.</i>`;
-                html += `</div></div > `;
+                html += `</div></div>`;
 
                 const c4Pass = !skipReason.includes('mom');
-                html += `< div class="explanation-check ${c4Pass ? 'pass' : 'fail'}" > `;
-                html += `< span style = "font-size: 1.1rem;" > ${c4Pass ? '✓' : '✗'}</span > `;
-                html += `< div ><b>Enough Momentum (Mom > 0.25×Volatility):</b><br>`;
+                html += `<div class="explanation-check ${c4Pass ? 'pass' : 'fail'}">`;
+                html += `<span style="font-size: 1.1rem;">${c4Pass ? '✓' : '✗'}</span>`;
+                html += `<div><b>Enough Momentum (Mom > 0.25×Volatility):</b><br>`;
                 html += c4Pass ? `<i>YES! Stock has solid upward momentum from open — good entry.</i>` : `<i>NO. Not enough buying pressure yet — wait for more momentum.</i>`;
-                html += `</div></div > `;
-                html += `</div > `;
+                html += `</div></div>`;
+                html += `</div>`;
 
                 // Result section
                 if (t.bought) {
@@ -2155,8 +2155,8 @@
                     const slPrice = t.stop_loss?.toFixed(2) || open;
                     const profitPct = t.buy_price > 0 ? (((t.actual_sell || t.close) - t.buy_price) / t.buy_price * 100).toFixed(2) : '0';
 
-                    html += `< div class="explanation-result ${t.profit >= 0 ? 'win' : 'loss'}" > `;
-                    html += `< b >✅ ALL 4 CONDITIONS PASSED → BOUGHT at $${price10am}</b > <br><br>`;
+                    html += `<div class="explanation-result ${t.profit >= 0 ? 'win' : 'loss'}">`;
+                    html += `<b>✅ ALL 4 CONDITIONS PASSED → BOUGHT at $${price10am}</b><br><br>`;
                     html += `<b>Exit Plan:</b><br>`;
                     html += `• Take Profit (TP): Sell at $${tpPrice} (+${sellTrigger}% profit)<br>`;
                     html += `• Stop Loss (SL): Sell at $${slPrice} (day's open price — protection)<br><br>`;
