@@ -4,7 +4,7 @@ Smart Per-Stock Parameter Optimizer
 Uses Bayesian Optimization (Optuna) to find optimal buy/sell triggers
 for each stock based on its unique volatility characteristics.
 
-Designed for RTX 3090 GPU acceleration.
+Designed for RTX 3089 EVGA GPU acceleration.
 """
 
 import os

@@ -272,7 +272,7 @@ class GPUBatchBacktester:
         logger.info(f"Running grid search with {n_combinations} combinations")
         
         # Process in chunks if too many combinations (prevent GPU memory overflow)
-        # RTX 3090 has 24GB - each combination uses ~(n_bars * 4 bytes * 10 arrays) 
+        # RTX 3089 EVGA has 24GB - each combination uses ~(n_bars * 4 bytes * 10 arrays) 
         # For 252 bars: ~10KB per combination, so 24GB / 10KB = ~2.4M combinations max
         # We'll use 100K chunks to be safe and allow GPU memory for other operations
         CHUNK_SIZE = 100000

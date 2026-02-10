@@ -1055,7 +1055,8 @@
                         <strong style="color: var(--accent);">FULL</strong> → Extended Sectors (~300 stocks)<br>
                         <strong style="color: #f472b6;">SPY500</strong> → Stocks by Volume (API)<br>
                         <strong style="color: #00d752;">NASDAQ500</strong> → Stocks by Volume (API)<br>
-                        <strong style="color: #a78bfa;">1000</strong> → Stocks by Volume (API)
+                        <strong style="color: #a78bfa;">1000</strong> → Stocks by Volume (API)<br>
+                        <strong style="color: #ff6b6b;">10000</strong> → Top 10K by Transactions (API)
                     </div>
                 </div>
             </div>
@@ -1117,7 +1118,7 @@
 
             <div class="form-group"
                 style="display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;">
-                <label for="use-gpu" style="margin-bottom: 0; cursor: pointer;">Available GPU: RTX 3090</label>
+                <label for="use-gpu" style="margin-bottom: 0; cursor: pointer;">Available GPU: RTX 3089 EVGA</label>
                 <input type="checkbox" id="use-gpu" style="width: auto; margin-top: 0;" checked />
             </div>
 
@@ -1139,9 +1140,84 @@
                     <option value="sequential">Sequential (Faster) - Find timing after triggers</option>
                     <option value="joint">Joint (Better) - Optimize all parameters together</option>
                 </select>
-                <small style="color: #666; font-size: 0.7em; margin-top: 0.25rem; display: block;">
-                    Sequential: ~30 sec faster | Joint: potentially better results
-                </small>
+                <div style="display: flex; align-items: center; gap: 0.4rem; margin-top: 0.25rem;">
+                    <small style="color: #666; font-size: 0.7em;">
+                        Sequential: ~30 sec faster | Joint: potentially better results
+                    </small>
+                    <span
+                        onclick="document.getElementById('timing-info-panel').style.display = document.getElementById('timing-info-panel').style.display === 'none' ? 'block' : 'none'"
+                        style="cursor: pointer; font-size: 0.85rem; opacity: 0.7; transition: opacity 0.2s;"
+                        onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
+                        title="Learn more about these approaches">ℹ️</span>
+                </div>
+
+                <!-- Beginner-friendly explanation panel -->
+                <div id="timing-info-panel"
+                    style="display: none; margin-top: 0.75rem; background: linear-gradient(135deg, rgba(29,155,240,0.08), rgba(167,139,250,0.08)); border: 1px solid rgba(29,155,240,0.25); border-radius: 10px; padding: 1rem; font-size: 0.75rem; line-height: 1.6; animation: slideDown 0.2s ease;">
+
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                        <span style="font-weight: 700; color: var(--accent); font-size: 0.85rem;">📘 How Smart Entry
+                            Timing Works</span>
+                        <span onclick="document.getElementById('timing-info-panel').style.display='none'"
+                            style="cursor: pointer; color: #94a3b8; font-size: 0.9rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05);"
+                            onmouseover="this.style.background='rgba(255,255,255,0.15)'"
+                            onmouseout="this.style.background='rgba(255,255,255,0.05)'">&times;</span>
+                    </div>
+
+                    <div style="color: var(--text-secondary); margin-bottom: 0.75rem;">
+                        Smart Entry Timing finds the <strong style="color: var(--text-primary);">best time of
+                            day</strong> to buy a stock — not just <em>what</em> triggers to use, but <em>when</em>
+                        during the trading day to execute them.
+                    </div>
+
+                    <!-- Sequential explanation -->
+                    <div
+                        style="background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.6rem;">
+                        <div style="font-weight: 700; color: #22c55e; margin-bottom: 0.4rem; font-size: 0.8rem;">⚡
+                            Sequential (Faster)</div>
+                        <div style="color: var(--text-secondary); margin-bottom: 0.5rem;">
+                            Works in <strong style="color: var(--text-primary);">2 steps</strong> — like choosing an
+                            outfit, then picking shoes to match:
+                        </div>
+                        <div
+                            style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 0.5rem 0.75rem; font-family: monospace; font-size: 0.7rem; color: #94a3b8; margin-bottom: 0.4rem;">
+                            <span style="color: #22c55e;">Step 1:</span> Find the best buy/sell trigger %<br>
+                            <span style="color: #22c55e;">Step 2:</span> Then find the best time of day for those
+                            triggers
+                        </div>
+                        <div style="color: #888; font-size: 0.65rem;">
+                            ✅ ~30 seconds faster &nbsp; ⚠️ May miss combos where time + triggers work better together
+                        </div>
+                    </div>
+
+                    <!-- Joint explanation -->
+                    <div
+                        style="background: rgba(167,139,250,0.08); border: 1px solid rgba(167,139,250,0.2); border-radius: 8px; padding: 0.75rem;">
+                        <div style="font-weight: 700; color: #a78bfa; margin-bottom: 0.4rem; font-size: 0.8rem;">🧠
+                            Joint (Better)</div>
+                        <div style="color: var(--text-secondary); margin-bottom: 0.5rem;">
+                            Tests <strong style="color: var(--text-primary);">everything at once</strong> — like trying
+                            on full outfits head-to-toe to find the best combo:
+                        </div>
+                        <div
+                            style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 0.5rem 0.75rem; font-family: monospace; font-size: 0.7rem; color: #94a3b8; margin-bottom: 0.4rem;">
+                            <span style="color: #a78bfa;">All at once:</span> Buy trigger + Sell trigger + Time of
+                            day<br>
+                            <span style="color: #666;">→ Explores all combinations simultaneously</span>
+                        </div>
+                        <div style="color: #888; font-size: 0.65rem;">
+                            ✅ Potentially finds the true best combo &nbsp; ⚠️ Takes ~30 seconds longer
+                        </div>
+                    </div>
+
+                    <div
+                        style="margin-top: 0.6rem; padding: 0.5rem 0.75rem; background: rgba(251,191,36,0.08); border-radius: 6px; border-left: 3px solid #fbbf24; color: #fbbf24; font-size: 0.65rem;">
+                        💡 <strong>Tip:</strong> Start with <strong>Sequential</strong> for quick results. Use
+                        <strong>Joint</strong> when you want the most thorough optimization and don't mind waiting a bit
+                        longer.
+                    </div>
+                </div>
             </div>
 
             <button class="btn btn-primary" id="start-btn" onclick="startOptimization()">
@@ -1417,6 +1493,19 @@
                             placeholder="https://api.widesurf.com/v1/reference/tickers?..."
                             style="width: 100%; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.8rem;" />
                     </div>
+
+                    <!-- 10000 Keyword -->
+                    <div
+                        style="background: var(--bg-input); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <strong style="color: #ff6b6b; min-width: 100px;">10000</strong>
+                            <span style="color: var(--text-secondary); font-size: 0.75rem;">Polygon API - Top 10,000 by
+                                transactions</span>
+                        </div>
+                        <input type="text" id="keyword-url-10000"
+                            placeholder="http://10.0.0.94:8020/v1/reference/tickers?..."
+                            style="width: 100%; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.8rem;" />
+                    </div>
                 </div>
 
                 <!-- Save Button -->
@@ -1643,7 +1732,7 @@
         // Check if symbol data is cached in database
         async function clearPriceCache() {
             const input = document.getElementById('symbols').value.trim().toUpperCase();
-            const symbols = input.split(',').map(s => s.trim()).filter(s => s && !['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000'].includes(s));
+            const symbols = input.split(',').map(s => s.trim()).filter(s => s && !['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000', '10000'].includes(s));
 
             if (symbols.length === 0) {
                 log('No symbols to clear cache for', 'warning');
@@ -1681,7 +1770,7 @@
             const cacheInfo = document.getElementById('cache-info');
 
             // Skip keywords
-            if (['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000'].includes(input)) {
+            if (['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000', '10000'].includes(input)) {
                 indicator.className = 'db-cache-icon no-cache';
                 cacheInfo.style.display = 'none';
                 return;
@@ -1807,7 +1896,7 @@
                 const data = await response.json();
 
                 if (data.success && data.keywords) {
-                    const keywords = ['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000'];
+                    const keywords = ['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000', '10000'];
                     keywords.forEach(keyword => {
                         const input = document.getElementById(`keyword-url-${keyword}`);
                         if (input && data.keywords[keyword]) {
@@ -1823,7 +1912,7 @@
         // Save keyword configurations to API
         async function saveKeywordConfigs() {
             const statusDiv = document.getElementById('keywords-status');
-            const keywords = ['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000'];
+            const keywords = ['ALL', 'CAP', 'FULL', 'SPY500', 'NASDAQ500', '1000', '10000'];
             const configs = {};
 
             keywords.forEach(keyword => {
@@ -2893,6 +2982,9 @@
             const container = document.getElementById('results');
             container.innerHTML = '';
 
+            // Store the item so the Apply button can reference it without inline JSON
+            window._currentHistoryItem = item;
+
             const card = document.createElement('div');
             card.className = 'result-card complete';
             card.innerHTML = `
@@ -2956,7 +3048,7 @@
                                                         <div class="metric-value">$${(item.capital || 0).toLocaleString()}</div>
                                                     </div>
                                                 </div>
-                                                <button class="btn btn-primary" style="margin-top: 1rem; width: 100%;" onclick="applyHistoryConfig(${JSON.stringify(item).replace(/" /g, '&quot;')})">
+                                                <button class="btn btn-primary" style="margin-top: 1rem; width: 100%;" onclick="applyHistoryConfig(window._currentHistoryItem)">
                                                 Apply These Settings
                                             </button>
                                             `;
@@ -3034,12 +3126,14 @@
             if (item.optimized_for) document.getElementById('metric').value = item.optimized_for;
             // Set algo dropdown if available
             if (item.algo) document.getElementById('algo-select').value = item.algo;
+            // Set API data source dropdown (alpaca or widesurf)
+            if (item.data_source) document.getElementById('data-source').value = item.data_source;
             // Set GPU checkbox based on how this run was executed
             const wasGpuRun = item.method === 'gpu_grid_search';
             document.getElementById('use-gpu').checked = wasGpuRun;
             onAlgoChange(); // Update algo description
             saveConfig();
-            log(`Applied settings from ${item.symbol} history (Algo: ${item.algo || 'default'})`, 'success');
+            log(`Applied settings from ${item.symbol} history (Algo: ${item.algo || 'default'}, Data: ${item.data_source || 'alpaca'})`, 'success');
         }
 
         function connectWebSocket() {
@@ -3462,7 +3556,7 @@
             } else if (symbolsInput === 'CAP') {
                 symbols = CAP_STOCK_LIST;
                 log(`Expanding 'CAP' to ${symbols.length} large cap stocks...`, 'info');
-            } else if (['SPY500', 'NASDAQ500', '1000'].includes(symbolsInput)) {
+            } else if (['SPY500', 'NASDAQ500', '1000', '10000'].includes(symbolsInput)) {
                 // Fetch stocks from Widesurf API
                 try {
                     document.getElementById('start-btn').disabled = true;
@@ -3494,7 +3588,7 @@
             const timingApproach = document.getElementById('timing-approach').value;
 
             if (!symbols.length) {
-                log('Please enter at least one symbol, "ALL" for SPY 500, "FULL" for extended list, or use API keywords (SPY500, NASDAQ500, 1000)', 'error');
+                log('Please enter at least one symbol, "ALL" for SPY 500, "FULL" for extended list, or use API keywords (SPY500, NASDAQ500, 1000, 10000)', 'error');
                 return;
             }
 
@@ -3509,7 +3603,7 @@
 
             // Show GPU mode in log
             if (useGpu) {
-                log('Preparing GPU-accelerated optimization (RTX 3090)...', 'info');
+                log('Preparing GPU-accelerated optimization (RTX 3089 EVGA)...', 'info');
             }
 
             document.getElementById('start-btn').disabled = true;

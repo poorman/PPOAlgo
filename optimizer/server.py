@@ -898,7 +898,7 @@ async def get_widesurf_tickers(keyword: str):
         List of stock tickers
     """
     keyword_upper = keyword.upper()
-    valid_keywords = ['SPY500', 'NASDAQ500', '1000']
+    valid_keywords = ['SPY500', 'NASDAQ500', '1000', '10000']
     
     if keyword_upper not in valid_keywords:
         return {"success": False, "error": f"Unknown keyword: {keyword}. Valid options: SPY500, NASDAQ500, 1000"}
@@ -919,7 +919,8 @@ async def get_widesurf_tickers(keyword: str):
         default_urls = {
             'SPY500': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
             'NASDAQ500': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
-            '1000': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=1000&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}"
+            '1000': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=1000&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
+            '10000': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&exchange=XNAS%2C+NYSE&active=true&order=desc&limit=10000&sort=transactions&type=limited&apiKey={WIDESURF_API_KEY}"
         }
         url = default_urls.get(keyword_upper)
         logger.info(f"Using fallback URL for {keyword_upper} (no database config found)")
@@ -996,6 +997,10 @@ def get_default_keyword_configs():
         "1000": {
             "api_url": f"https://api.widesurf.com/v1/reference/tickers?market=stocks&active=true&order=desc&limit=1000&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
             "description": "Top 1000 stocks by volume (Widesurf API)"
+        },
+        "10000": {
+            "api_url": f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&exchange=XNAS%2C+NYSE&active=true&order=desc&limit=10000&sort=transactions&type=limited&apiKey={WIDESURF_API_KEY}",
+            "description": "Top 10,000 stocks by transactions (NASDAQ + NYSE)"
         }
     }
 
@@ -1010,7 +1015,7 @@ async def get_keywords_api():
         
         # Merge with defaults (DB takes precedence)
         result = {}
-        for keyword in ["ALL", "CAP", "FULL", "SPY500", "NASDAQ500", "1000"]:
+        for keyword in ["ALL", "CAP", "FULL", "SPY500", "NASDAQ500", "1000", "10000"]:
             if keyword in db_configs and db_configs[keyword].get("api_url"):
                 result[keyword] = db_configs[keyword]
             else:
