@@ -2134,15 +2134,16 @@ async def optimize_stock(
         # Use data source from config (default: alpaca)
         data_source = getattr(config, 'data_source', 'alpaca')
         
+        loop = asyncio.get_event_loop()
         if data_source == "widesurf":
             # Use Widesurf API directly
-            bars = fetch_prices_from_widesurf(symbol, config.start_date, config.end_date, "1Day")
+            bars = await loop.run_in_executor(None, fetch_prices_from_widesurf, symbol, config.start_date, config.end_date, "1Day")
             if not bars:
                 logger.warning(f"Widesurf returned no data for {symbol}, trying cache")
-                bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Day")
+                bars = await loop.run_in_executor(None, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Day")
         else:
             # Use the cached system for Alpaca API
-            bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Day")
+            bars = await loop.run_in_executor(None, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Day")
         
         # Fallback to direct API if cache fails
         if not bars:
@@ -2545,7 +2546,8 @@ async def optimize_stock(
                 })
                 
                 # Fetch intraday data for 10AM prices and VWAP
-                intraday_bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Min")
+                loop = asyncio.get_event_loop()
+                intraday_bars = await loop.run_in_executor(None, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Min")
                 
                 # Build map of date -> {price_10am, vwap, vwap_940, or_high, or_low}
                 vwap_data_map = {}
@@ -3122,7 +3124,7 @@ async def start_optimization(request: OptimizationRequest):
     # Run optimization in background
     async def run_all():
         results = {}
-        semaphore = asyncio.Semaphore(4)  # Safer concurrency level to keep event loop responsive
+        semaphore = asyncio.Semaphore(12)  # Increased to 12 as requested (i9-13900K has 32 threads)
         
         async def optimize_wrapper(symbol):
             async with semaphore:
