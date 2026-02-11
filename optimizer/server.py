@@ -2212,15 +2212,17 @@ async def optimize_stock(
         "bounds": bounds
     })
 
-    # GPU Optimization Path
-    logger.info(f"GPU Decision for {symbol}: use_gpu={config.use_gpu}, GPU_BACKTEST_AVAILABLE={GPU_BACKTEST_AVAILABLE}")
-    if config.use_gpu and GPU_BACKTEST_AVAILABLE:
+    # GPU / Parallel Grid Search Path
+    logger.info(f"Optimization Path Decision: use_gpu={config.use_gpu}, algo={getattr(config, 'algo', 'default')}")
+    
+    # We enter this block if GPU is requested OR if the Rust algo is selected (which doesn't need GPU but needs Grid Search)
+    if (config.use_gpu and GPU_BACKTEST_AVAILABLE) or getattr(config, 'algo', '') == 'chatgpt_vwap_rust':
         await broadcast_message({
             "type": "status",
             "job_id": job_id,
             "symbol": symbol,
-            "status": "optimizing_gpu",
-            "message": f"Running GPU-accelerated massive grid search...",
+            "status": "optimizing_parallel",
+            "message": f"Running parallelized massive grid search...",
         })
         
         try:
@@ -2841,12 +2843,12 @@ async def optimize_stock(
             return result
             
         except Exception as e:
-            logger.error(f"GPU optimization failed: {e}")
+            logger.error(f"Parallel optimization failed: {e}")
             await broadcast_message({
                 "type": "error",
                 "job_id": job_id,
                 "symbol": symbol,
-                "message": f"GPU optimization failed: {str(e)}. Falling back to CPU..."
+                "message": f"Parallel optimization failed: {str(e)}. Falling back to sequential..."
             })
             # Fall back to CPU if GPU fails
     
