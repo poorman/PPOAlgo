@@ -1119,7 +1119,7 @@
 
             <div class="form-group"
                 style="display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;">
-                <label for="use-gpu" style="margin-bottom: 0; cursor: pointer;">Available GPU: RTX 3089 EVGA</label>
+                <label for="use-gpu" style="margin-bottom: 0; cursor: pointer;">Available GPU: RTX 3080 EVGA</label>
                 <input type="checkbox" id="use-gpu" style="width: auto; margin-top: 0;" checked />
             </div>
 
@@ -2856,33 +2856,12 @@
                                                         <div class="history-symbol">${item.symbol}${algoBadge}</div>
                                                         <div class="history-date">${formatDate(item.created_at)}</div>
                                                         <div class="history-score">
-                                                            win: ${item.win_rate ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'} |
-                                                            ret: ${item.total_return ? (parseFloat(item.total_return) * 100).toFixed(0) + '%' : 'N/A'}
+                                                            win: ${item.win_rate != null ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'} |
+                                                            ret: ${item.total_return != null ? (parseFloat(item.total_return) * 100).toFixed(0) + '%' : 'N/A'}
                                                         </div>
                                                         <div class="history-score" style="font-size: 0.65rem; opacity: 0.8;">
-                                                            fin: ${(() => {
-                        // Get final equity from last trade in trade_log
-                        const capital = item.capital || 100000;
-                        if (item.trade_log && item.trade_log.length > 0) {
-                            // Find last trade with equity value
-                            const tradesWithEquity = item.trade_log.filter(t => t.equity);
-                            if (tradesWithEquity.length > 0) {
-                                const lastEquity = tradesWithEquity[tradesWithEquity.length - 1].equity;
-                                const finalPct = (lastEquity / capital * 100).toFixed(1);
-                                return finalPct + '%';
-                            }
-                        }
-                        return 'N/A';
-                    })()} | ${(() => {
-                        // Count wins and losses from trade_log - wins in blue, losses in red, then show win rate %
-                        if (!item.trade_log) return 'N/A';
-                        const trades = item.trade_log.filter(t => t.bought);
-                        const wins = trades.filter(t => t.profit > 0).length;
-                        const losses = trades.filter(t => t.profit <= 0).length;
-                        const total = wins + losses;
-                        const winRate = total > 0 ? (wins / total * 100).toFixed(0) : 0;
-                        return '<span style="color: var(--accent);">' + wins + '</span>/<span style="color: var(--danger);">' + losses + '</span> | ' + winRate + '%';
-                    })()}
+                                                            fin: ${item.total_return != null ? ((parseFloat(item.total_return) + 1) * 100).toFixed(1) + '%' : 'N/A'} | 
+                                                            win: ${item.win_rate != null ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'}
                                                         </div>
                                                     </div>
                                                     <button class="delete-btn" onclick="event.stopPropagation(); deleteHistoryItem(${item.id})" title="Delete">🗑️</button>
@@ -2957,21 +2936,13 @@
         // Show history detail by ID (uses local cache first for fast loading)
         async function showHistoryDetailById(id) {
             try {
-                // First try to find in local historyData cache (fast)
-                let item = historyData.find(h => h.id === id);
+                log(`Loading details for history #${id}...`, 'info');
 
-                if (!item) {
-                    // Fallback: fetch from API only if not in cache
-                    const resp = await fetch('/api/history');
-                    const freshData = await resp.json();
-                    item = freshData.find(h => h.id === id);
-                    if (!item) {
-                        log('History item not found', 'error');
-                        return;
-                    }
-                }
+                // Fetch full details including trade_log
+                const resp = await fetch(`/api/history/${id}`);
+                if (!resp.ok) throw new Error('Failed to fetch details');
+                const item = await resp.json();
 
-                console.log('showHistoryDetailById - Found item, trade_log length:', item.trade_log ? item.trade_log.length : 0);
                 showHistoryDetail(item);
             } catch (e) {
                 log(`Failed to load history item: ${e.message}`, 'error');
@@ -3022,24 +2993,28 @@
                                                         <div class="param-value">${item.sell_trigger_pct}%</div>
                                                     </div>
                                                     <div class="param">
+                                                        <div class="param-label">Stop Loss</div>
+                                                        <div class="param-value">${item.stop_loss_pct !== undefined ? item.stop_loss_pct + '%' : 'N/A'}</div>
+                                                    </div>
+                                                    <div class="param">
                                                         <div class="param-label">Compound</div>
                                                         <div class="param-value">${item.compound ? 'Yes' : 'No'}</div>
                                                     </div>
                                                 </div>
-                                                <div class="metrics-grid" style="margin-top: 1rem;">
+                                                <div class="metrics-grid" style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
                                                     <div class="metric">
                                                         <div class="metric-label">${item.optimized_for || 'Score'}</div>
                                                         <div class="metric-value ${item.score > 0 ? 'positive' : 'negative'}">${sanitizeValue(item.score, false, 2)}</div>
                                                     </div>
                                                     ${item.optimized_for !== 'win_rate' ? `
-                    <div class="metric">
-                        <div class="metric-label">Win %</div>
-                        <div class="metric-value ${(item.win_rate && parseFloat(item.win_rate) > 0.5) ? 'positive' : ''}">${item.win_rate ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'}</div>
-                    </div>
-                    ` : ''}
+                                                    <div class="metric">
+                                                        <div class="metric-label">Win %</div>
+                                                        <div class="metric-value ${(item.win_rate != null && parseFloat(item.win_rate) > 0.5) ? 'positive' : ''}">${item.win_rate != null ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'}</div>
+                                                    </div>
+                                                    ` : ''}
                                                     <div class="metric">
                                                         <div class="metric-label">Trials</div>
-                                                        <div class="metric-value">${item.n_trials || 'N/A'}</div>
+                                                        <div class="metric-value">${item.n_trials || item.trials_count || 200}</div>
                                                     </div>
                                                     <div class="metric">
                                                         <div class="metric-label">Duration</div>
@@ -3174,7 +3149,7 @@
                     break;
                 case 'complete':
                     showComplete(data);
-                    loadHistory(); // Refresh history after completion
+                    // loadHistory(); // REMOVED: showComplete now handles optimistic update
                     break;
                 case 'error':
                     showError(data);
@@ -3227,6 +3202,8 @@
                 'analyzing': `🔬 Analyzing ${data.symbol} volatility...`,
                 'optimizing': `🧠 Optimizing ${data.symbol}...`,
                 'optimizing_gpu': `🔥 GPU optimizing ${data.symbol}...`,
+                'optimizing_cpu': `🦀 CPU optimizing ${data.symbol}...`,
+                'optimizing_parallel': `🦀 Parallel optimizing ${data.symbol}...`,
                 'optimizing_timing': `⏰ Finding optimal buy time...`,
                 'generating_trade_log': `📝 Generating trade log...`,
                 'saving_to_db': `💾 Saving results to database...`
@@ -3240,6 +3217,8 @@
                 'analyzing': '🔬 Analyze',
                 'optimizing': '🧠 Optimize',
                 'optimizing_gpu': '🔥 GPU',
+                'optimizing_cpu': '🦀 CPU',
+                'optimizing_parallel': '🦀 Parallel',
                 'optimizing_timing': '⏰ Timing',
                 'generating_trade_log': '📝 TradeLog',
                 'saving_to_db': '💾 Saving'
@@ -3366,13 +3345,13 @@
                 const params = card.querySelector('.current-params');
                 const r = data.result;
                 if (params) {
-                    const algoType = document.getElementById('algo-select').value;
-                    const isVWAP = algoType === 'chatgpt_vwap';
+                    const algoType = r.algo || document.getElementById('algo-select').value;
+                    const isVWAP = algoType && algoType.includes('vwap');
                     params.innerHTML = `
                                             <div class="param"><div class="param-label">Buy Trigger</div><div class="param-value">${r.best_params.buy_trigger_pct}%</div></div>
                                             <div class="param"><div class="param-label">Sell Trigger</div><div class="param-value">${r.best_params.sell_trigger_pct}%</div></div>
                                             <div class="param"><div class="param-label">Compound</div><div class="param-value">${r.best_params.compound ? 'Yes' : 'No'}</div></div>
-                                            ${isVWAP ? '<div class="param"><div class="param-label">Stop Loss</div><div class="param-value" style="color: #22c55e;">None</div></div>' : ''}
+                                            ${(isVWAP || r.best_params.stop_loss_pct) ? `<div class="param"><div class="param-label">Stop Loss</div><div class="param-value" style="color: ${r.best_params.stop_loss_pct ? 'var(--danger)' : '#22c55e'};">${r.best_params.stop_loss_pct ? r.best_params.stop_loss_pct + '%' : 'None'}</div></div>` : ''}
                                             `;
                 }
 
@@ -3411,18 +3390,41 @@
 
             // Add to history list immediately without full reload
             if (data.result.history_id) {
+                const r = data.result;
+                const m = r.metrics || {};
+                const p = r.best_params || {};
+                const v = r.volatility_profile || {};
+
                 const newHistoryItem = {
-                    id: data.result.history_id,
+                    id: r.history_id,
                     symbol: data.symbol,
-                    algo: document.getElementById('algo-select').value,
+                    algo: r.algo || document.getElementById('algo-select').value,
                     created_at: new Date().toISOString(),
-                    method: 'gpu_grid_search',
-                    win_rate: data.result.metrics?.win_rate,
-                    total_return: data.result.metrics?.total_return,
+                    method: r.method || 'cpu_parallel',
+                    win_rate: m.win_rate != null ? m.win_rate : null,
+                    total_return: m.total_return != null ? m.total_return : null,
+                    score: m[document.getElementById('metric').value] || 0,
+                    buy_trigger_pct: p.buy_trigger_pct,
+                    sell_trigger_pct: p.sell_trigger_pct,
+                    stop_loss_pct: p.stop_loss_pct,
+                    compound: p.compound,
+                    optimized_for: r.optimized_for || document.getElementById('metric').value,
+                    volatility_avg_range: v.avg_daily_range || 0,
+                    volatility_max_gain: v.max_daily_gain || 0,
+                    volatility_score: v.volatility_score || 0,
                     capital: parseInt(document.getElementById('capital').value) || 100000,
-                    trade_log: data.result.trade_log,
-                    best_params: data.result.best_params
+                    trade_log: r.trade_log,
+                    start_date: r.requested_start_date || document.getElementById('start-date').value,
+                    end_date: r.requested_end_date || document.getElementById('end-date').value,
+                    backtest_start_date: r.backtest_start_date,
+                    backtest_end_date: r.backtest_end_date,
+                    duration_seconds: r.duration_seconds,
+                    smart_timing: r.optimal_buy_time_cdt ? true : false
                 };
+
+                // Remove if already exists (avoids duplicates if backend saved it)
+                historyData = historyData.filter(item => !(item.symbol === data.symbol && item.job_id === data.job_id));
+
                 historyData.unshift(newHistoryItem);  // Add to front of list
                 document.getElementById('history-count').textContent = `(${historyData.length})`;
                 sortAndRenderHistory();  // Re-render the list

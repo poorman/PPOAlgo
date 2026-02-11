@@ -267,4 +267,4 @@ async def get_ai100_list(
         logger.error(f"Failed to get AI100 list: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        conn.close()
+        release_db_conn(conn)

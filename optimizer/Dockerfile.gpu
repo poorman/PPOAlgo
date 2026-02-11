@@ -1,5 +1,5 @@
-# GPU-enabled optimizer with CUDA support
-FROM nvidia/cuda:12.2.2-devel-ubuntu22.04
+# GPU-enabled optimizer with CUDA support (CUDA 11.8 for maximum compatibility)
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
 
 # Install Python
 RUN apt-get update && apt-get install -y \
@@ -18,7 +18,8 @@ RUN pip3 install --no-cache-dir \
     numpy \
     websockets \
     psycopg2-binary \
-    cupy-cuda12x
+    cupy-cuda11x \
+    tzdata
 
 # Copy application files
 COPY server.py /app/
@@ -30,7 +31,8 @@ COPY static /app/static/
 RUN mkdir -p /app/results
 
 # Create startup script that warms up GPU before starting server (4 workers for concurrency)
-RUN echo '#!/bin/bash\necho "Running GPU warmup..."\npython3 /app/gpu_warmup.py\necho "Starting server with 4 workers..."\nexec uvicorn server:app --host 0.0.0.0 --port 8000 --workers 4' > /app/start.sh && chmod +x /app/start.sh
+# Create startup script that warms up GPU before starting server (1 worker manages all internal parallel tasks)
+RUN echo '#!/bin/bash\necho "Checking for NVIDIA GPU..."\nif command -v nvidia-smi &> /dev/null; then nvidia-smi || echo "GPU detected but nvidia-smi failed (standard in WSL2)"; else echo "nvidia-smi not found"; fi\necho "Running GPU warmup..."\npython3 /app/gpu_warmup.py\necho "Starting server with 1 worker..."\nexec uvicorn server:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-keep-alive 60' > /app/start.sh && chmod +x /app/start.sh
 
 EXPOSE 8000
 

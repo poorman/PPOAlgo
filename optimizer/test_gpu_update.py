@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Test script to verify:
-1. GPU label update from RTX 3090 -> RTX 3089 EVGA
+1. GPU label update from RTX 3090 -> RTX 3080 EVGA
 2. Core optimizer backtesting logic with sample calculations
 """
 
@@ -13,22 +13,22 @@ import re
 # TEST 1: Verify GPU label updates in all files
 # ============================================================
 def test_gpu_label_updates():
-    """Check that all references have been updated from RTX 3090 to RTX 3089 EVGA."""
+    """Check that all references have been updated from RTX 3090 to RTX 3080 EVGA."""
     print("=" * 60)
     print("TEST 1: GPU Label Update Verification")
     print("=" * 60)
     
     files_to_check = {
         "static/index.html": {
-            "should_contain": ["RTX 3089 EVGA"],
+            "should_contain": ["RTX 3080 EVGA"],
             "should_not_contain": ["RTX 3090"],
         },
         "gpu_backtest.py": {
-            "should_contain": ["RTX 3089 EVGA"],
+            "should_contain": ["RTX 3080 EVGA"],
             "should_not_contain": [],  # Only checking the updated line
         },
         "stock_optimizer.py": {
-            "should_contain": ["RTX 3089 EVGA"],
+            "should_contain": ["RTX 3080 EVGA"],
             "should_not_contain": [],
         },
     }

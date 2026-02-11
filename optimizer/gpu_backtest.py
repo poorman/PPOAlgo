@@ -11,14 +11,21 @@ import logging
 # Try importing CuPy for GPU acceleration
 try:
     import cupy as cp
-    GPU_AVAILABLE = True
-    xp = cp  # Use CuPy as the array library
-    logging.info("CuPy loaded - GPU acceleration enabled")
-except ImportError:
+    # Runtime check: Does CuPy actually see any GPUs?
+    if cp.cuda.runtime.getDeviceCount() > 0:
+        GPU_AVAILABLE = True
+        xp = cp  # Use CuPy as the array library
+        logging.info(f"CuPy loaded - {cp.cuda.runtime.getDeviceCount()} GPU(s) detected and enabled")
+    else:
+        import numpy as np
+        GPU_AVAILABLE = False
+        xp = np
+        logging.info("CuPy loaded but NO CUDA DEVICES found - falling back to NumPy (CPU)")
+except Exception as e:
     import numpy as np
     GPU_AVAILABLE = False
     xp = np  # Fall back to NumPy
-    logging.info("CuPy not available - using NumPy (CPU)")
+    logging.info(f"CuPy initialization failed: {e} - using NumPy (CPU)")
 
 import numpy as np  # Always need NumPy for some operations
 
@@ -272,7 +279,7 @@ class GPUBatchBacktester:
         logger.info(f"Running grid search with {n_combinations} combinations")
         
         # Process in chunks if too many combinations (prevent GPU memory overflow)
-        # RTX 3089 EVGA has 24GB - each combination uses ~(n_bars * 4 bytes * 10 arrays) 
+        # RTX 3080 EVGA has 24GB - each combination uses ~(n_bars * 4 bytes * 10 arrays) 
         # For 252 bars: ~10KB per combination, so 24GB / 10KB = ~2.4M combinations max
         # We'll use 100K chunks to be safe and allow GPU memory for other operations
         CHUNK_SIZE = 100000
@@ -924,181 +931,139 @@ def run_chatgpt_stoploss_optimization(
     }
 
 
-class GPUChatGPTVWAPBacktester:
-    """
-    ChatGPT VWAP Strategy Backtester.
-    
-    Entry Rules (at 10AM):
-    - Price_10AM >= Open_Price * (1 + entry_trigger)  (default 1.1%)
-    - Price_10AM > VWAP (additional VWAP filter)
-    
-    Exit Rules (first triggers):
-    1. Take Profit: price >= entry * (1 + take_profit)  (default 2.2%)
-    2. Protect winner: price < Price_10AM (protect entry level)
-    3. Stop Loss: price <= entry * (1 + stop_loss)  (default -0.7%)
-    4. Time-based: exit at close
-    """
-    
     def __init__(self, bars: list, capital: float = 100000):
-        self.bars = bars
         self.capital = capital
         self.n_bars = len(bars)
         
-        # Pre-extract price arrays
-        self.open_prices = np.array([bar.get('open', 0) for bar in bars])
-        self.high_prices = np.array([bar.get('high', 0) for bar in bars])
-        self.low_prices = np.array([bar.get('low', 0) for bar in bars])
-        self.close_prices = np.array([bar.get('close', 0) for bar in bars])
-        self.price_10am = np.array([bar.get('price_10am', bar.get('close', 0)) for bar in bars])
-        self.vwap = np.array([bar.get('vwap', bar.get('close', 0)) for bar in bars])
-    
-    def run_backtest(self, entry_trigger: float = 0.011, take_profit: float = 0.022, 
-                     stop_loss: float = -0.007, use_protect_winner: bool = True) -> dict:
-        """
-        Run backtest with VWAP filter.
+        # Extract price data
+        open_list = [b.get("open", b.get("o", 0)) for b in bars]
+        high_list = [b.get("high", b.get("h", 0)) for b in bars]
+        low_list = [b.get("low", b.get("l", 0)) for b in bars]
+        close_list = [b.get("close", b.get("c", 0)) for b in bars]
+        price_10am_list = [b.get("price_10am", b.get("c", 0)) for b in bars]
+        vwap_list = [b.get("vwap", b.get("c", 0)) for b in bars]
         
-        Args:
-            entry_trigger: % above open for entry (default 1.1%)
-            take_profit: % above entry for TP (default 2.2%)
-            stop_loss: % below entry for SL (default -0.7%)
-            use_protect_winner: Exit if price < Price_10AM
-        """
-        equity = self.capital
-        total_trades = 0
-        winning_trades = 0
-        total_profit = 0
-        total_loss = 0
-        max_equity = equity
-        max_drawdown = 0
-        trade_log = []
+        # Convert to GPU arrays
+        self.open_prices = xp.array(open_list, dtype=xp.float32)
+        self.high_prices = xp.array(high_list, dtype=xp.float32)
+        self.low_prices = xp.array(low_list, dtype=xp.float32)
+        self.close_prices = xp.array(close_list, dtype=xp.float32)
+        self.price_10am = xp.array(price_10am_list, dtype=xp.float32)
+        self.vwap = xp.array(vwap_list, dtype=xp.float32)
+
+    def run_batch(
+        self, 
+        entry_triggers: np.ndarray,
+        take_profits: np.ndarray,
+        stop_losses: np.ndarray,
+        use_protect_winner: bool = True
+    ) -> dict:
+        n_combos = len(entry_triggers)
         
+        # Reshape parameters for vectorized math (N_COMBOS, 1)
+        entry_trig = xp.array(entry_triggers, dtype=xp.float32).reshape(-1, 1)
+        tp_trig = xp.array(take_profits, dtype=xp.float32).reshape(-1, 1)
+        sl_trig = xp.array(stop_losses, dtype=xp.float32).reshape(-1, 1)
+        
+        # Initialize equity tracking
+        equity = xp.full((n_combos, 1), self.capital, dtype=xp.float32)
+        total_trades = xp.zeros((n_combos, 1), dtype=xp.int32)
+        winning_trades = xp.zeros((n_combos, 1), dtype=xp.int32)
+        
+        # Iterate through days (vectorized across combinations)
         for i in range(self.n_bars):
-            open_price = self.open_prices[i]
-            price_10am = self.price_10am[i]
-            high = self.high_prices[i]
-            low = self.low_prices[i]
-            close = self.close_prices[i]
-            vwap = self.vwap[i]
+            o = self.open_prices[i]
+            h = self.high_prices[i]
+            l = self.low_prices[i]
+            c = self.close_prices[i]
+            p10 = self.price_10am[i]
+            vw = self.vwap[i]
             
-            if open_price <= 0 or price_10am <= 0 or vwap <= 0:
-                continue
+            if o <= 0 or p10 <= 0: continue
+
+            # Entry condition: Price >= Open * (1 + trigger) AND Price > VWAP
+            entry_threshold = o * (1 + entry_trig)
+            signal = (p10 >= entry_threshold) & (p10 > vw)
             
-            # Entry check:
-            # 1. 10AM price >= open * (1 + entry_trigger)
-            # 2. 10AM price > VWAP (VWAP filter)
-            entry_threshold = open_price * (1 + entry_trigger)
-            if price_10am < entry_threshold or price_10am <= vwap:
-                continue
+            # Entry Price is always 10AM price
+            entry_p = p10
+            shares = xp.where(signal, equity / entry_p, 0)
             
-            entry_price = price_10am
-            shares = int(equity / entry_price) if entry_price > 0 else 0
+            # Exit Prices
+            tp_price = entry_p * (1 + tp_trig)
+            sl_price = entry_p * (1 + sl_trig)
             
-            if shares <= 0:
-                continue
+            # Determine Exit Reason and Price (TP > Protect > SL > Time)
+            # 1. Take Profit hit?
+            tp_hit = (h >= tp_price)
+            # 2. Protect hit? (Price dropped below entry level)
+            protect_hit = (l < entry_p)
+            # 3. Stop Loss hit?
+            sl_hit = (l <= sl_price)
             
-            total_trades += 1
+            # Priorities:
+            ex_price = xp.full((n_combos, 1), float(c), dtype=xp.float32)
+            ex_price = xp.where(sl_hit, sl_price, ex_price)
+            if use_protect_winner:
+                ex_price = xp.where(protect_hit, entry_p, ex_price)
+            ex_price = xp.where(tp_hit, tp_price, ex_price)
             
-            # Exit thresholds
-            take_profit_price = entry_price * (1 + take_profit)
-            stop_loss_price = entry_price * (1 + stop_loss)
-            
-            # Determine exit (TP first, then protect winner, then SL, then time)
-            if high >= take_profit_price:
-                exit_price = take_profit_price
-                exit_reason = "TP"
-            elif use_protect_winner and low < price_10am:
-                exit_price = price_10am
-                exit_reason = "PROTECT"
-            elif low <= stop_loss_price:
-                exit_price = stop_loss_price
-                exit_reason = "SL"
-            else:
-                exit_price = close
-                exit_reason = "TIME"
-            
-            profit = shares * (exit_price - entry_price)
-            pct_return = (exit_price - entry_price) / entry_price
-            
-            if profit > 0:
-                winning_trades += 1
-                total_profit += profit
-            else:
-                total_loss += abs(profit)
-            
-            equity += profit
-            
-            if equity > max_equity:
-                max_equity = equity
-            drawdown = (max_equity - equity) / max_equity if max_equity > 0 else 0
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
-            
-            trade_log.append({
-                "day": i,
-                "entry_price": entry_price,
-                "exit_price": exit_price,
-                "exit_reason": exit_reason,
-                "vwap": vwap,
-                "profit": profit,
-                "pct_return": pct_return,
-                "equity": equity
-            })
-        
+            # Calculate Profit
+            pnl = shares * (ex_price - entry_p)
+            equity = xp.where(signal, equity + pnl, equity)
+            total_trades = xp.where(signal, total_trades + 1, total_trades)
+            winning_trades = xp.where(signal & (pnl > 0), winning_trades + 1, winning_trades)
+
+        # Final metrics
         total_return = (equity - self.capital) / self.capital
-        win_rate = winning_trades / total_trades if total_trades > 0 else 0
-        profit_factor = total_profit / total_loss if total_loss > 0 else float('inf')
+        win_rate = xp.where(total_trades > 0, winning_trades / total_trades, 0)
         
+        def to_cpu(arr):
+            return cp.asnumpy(arr).flatten() if GPU_AVAILABLE else arr.flatten()
+            
         return {
-            "total_return": total_return,
-            "win_rate": win_rate,
-            "total_trades": total_trades,
-            "max_drawdown": max_drawdown,
-            "profit_factor": profit_factor,
-            "final_equity": equity,
-            "trade_log": trade_log
+            "total_return": to_cpu(total_return),
+            "win_rate": to_cpu(win_rate),
+            "total_trades": to_cpu(total_trades)
         }
-    
+
     def grid_search(self, entry_range: tuple, tp_range: tuple, sl_range: tuple,
                     metric: str = "total_return", progress_callback=None) -> dict:
-        """Grid search over entry, TP, and SL parameters."""
-        entry_values = np.arange(entry_range[0], entry_range[1], entry_range[2])
-        tp_values = np.arange(tp_range[0], tp_range[1], tp_range[2])
-        sl_values = np.arange(sl_range[0], sl_range[1], sl_range[2])
+        # Generate parameter grids
+        e_vals = np.arange(entry_range[0], entry_range[1], entry_range[2])
+        t_vals = np.arange(tp_range[0], tp_range[1], tp_range[2])
+        s_vals = np.arange(sl_range[0], sl_range[1], sl_range[2])
         
-        total_combinations = len(entry_values) * len(tp_values) * len(sl_values)
-        total_iterations = total_combinations * self.n_bars  # Total bar iterations
+        e_grid, t_grid, s_grid = np.meshgrid(e_vals, t_vals, s_vals)
+        e_flat, t_flat, s_flat = e_grid.flatten(), t_grid.flatten(), s_grid.flatten()
         
-        best_score = -float('inf')
-        best_params = None
-        best_result = None
-        n_combinations = 0
-        bars_processed = 0  # Track cumulative bar iterations
+        n_combos = len(e_flat)
+        logger.info(f"[GPU] Running VWAP grid search for {n_combos} combinations")
         
-        for entry in entry_values:
-            for tp in tp_values:
-                for sl in sl_values:
-                    n_combinations += 1
-                    result = self.run_backtest(float(entry), float(tp), float(sl))
-                    bars_processed += self.n_bars  # Each backtest processes all bars
-                    
-                    score = result.get(metric, result.get("total_return", 0))
-                    if score > best_score:
-                        best_score = score
-                        best_params = {
-                            "entry_trigger": float(entry),
-                            "take_profit": float(tp),
-                            "stop_loss": float(sl)
-                        }
-                        best_result = result
-                    
-                    # Report progress: total bar iterations completed
-                    if progress_callback:
-                        progress_callback(bars_processed, total_iterations, best_score)
+        # Chunk if needed
+        CHUNK_SIZE = 100000
+        results = {"total_return": [], "win_rate": [], "total_trades": []}
+        
+        for start in range(0, n_combos, CHUNK_SIZE):
+            end = min(start + CHUNK_SIZE, n_combos)
+            chunk = self.run_batch(e_flat[start:end], t_flat[start:end], s_flat[start:end])
+            for k in results: results[k].extend(chunk[k])
+            
+        res_arr = {k: np.array(v) for k, v in results.items()}
+        best_idx = np.argmax(res_arr[metric])
         
         return {
-            "best_params": best_params,
-            "best_result": best_result,
-            "n_combinations": n_combinations
+            "best_params": {
+                "entry_trigger": float(e_flat[best_idx]),
+                "take_profit": float(t_flat[best_idx]),
+                "stop_loss": float(s_flat[best_idx])
+            },
+            "best_result": {
+                "total_return": float(res_arr["total_return"][best_idx]),
+                "win_rate": float(res_arr["win_rate"][best_idx]),
+                "total_trades": int(res_arr["total_trades"][best_idx])
+            },
+            "n_combinations": n_combos
         }
 
 
@@ -1145,10 +1110,10 @@ def run_chatgpt_vwap_optimization(
             "sharpe": 0,
             "win_rate": best_result.get("win_rate", 0),
             "max_drawdown": best_result.get("max_drawdown", 0),
-            "total_trades": best_result.get("total_trades", 0),
+            "total_trades": int(best_result.get("total_trades", 0)),
         },
-        "optimization_type": "chatgpt_vwap_grid",
-        "gpu_enabled": False,
+        "optimization_type": "chatgpt_vwap_gpu_hybrid",
+        "gpu_enabled": GPU_AVAILABLE,
         "combinations_tested": search_result["n_combinations"]
     }
 

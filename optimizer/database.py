@@ -23,15 +23,40 @@ except ImportError:
     logger.warning("psycopg2 not installed, database features disabled")
 
 
+# Database connection pool for performance
+from psycopg2 import pool
+db_pool = None
+
+def init_db_pool():
+    global db_pool
+    if POSTGRES_AVAILABLE and db_pool is None:
+        try:
+            # Use ThreadedConnectionPool for thread safety since we use ThreadPoolExecutor
+            db_pool = pool.ThreadedConnectionPool(5, 200, **DB_CONFIG)
+            logger.info("Threaded database connection pool initialized (5-200 connections)")
+        except Exception as e:
+            logger.error(f"Failed to initialize database pool: {e}")
+
 def get_db_conn():
-    """Get PostgreSQL connection."""
+    """Get a connection from the pool."""
+    global db_pool
     if not POSTGRES_AVAILABLE:
         return None
+    
+    if db_pool is None:
+        init_db_pool()
+        
     try:
-        return psycopg2.connect(**DB_CONFIG)
+        return db_pool.getconn()
     except Exception as e:
         logger.error(f"Database connection failed: {e}")
         return None
+
+def release_db_conn(conn):
+    """Release a connection back to the pool."""
+    global db_pool
+    if db_pool and conn:
+        db_pool.putconn(conn)
 
 
 def ensure_tables():
@@ -161,7 +186,8 @@ def ensure_tables():
     except Exception as e:
         logger.error(f"Failed to create tables: {e}")
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
 
 
 def convert_numpy_types(obj):
@@ -211,7 +237,8 @@ def save_job_to_db(job_id: str, config):
     except Exception as e:
         logger.error(f"Failed to save job: {e}")
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
 
 
 def save_result_to_db(job_id: str, result: dict) -> Optional[int]:
@@ -271,7 +298,8 @@ def save_result_to_db(job_id: str, result: dict) -> Optional[int]:
         logger.error(f"Failed to save result: {e}")
         return None
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
 
 
 def update_job_status(job_id: str, status: str):
@@ -289,7 +317,8 @@ def update_job_status(job_id: str, status: str):
     except Exception as e:
         logger.error(f"Failed to update job status: {e}")
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
 
 
 def get_results_from_db(symbol: str = None) -> List[dict]:
@@ -317,7 +346,8 @@ def get_results_from_db(symbol: str = None) -> List[dict]:
         logger.error(f"Failed to get results: {e}")
         return []
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
 
 
 # ============================================================================
@@ -346,7 +376,8 @@ def ensure_keyword_configs_table():
     except Exception as e:
         logger.error(f"Failed to create keyword_configs table: {e}")
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
 
 
 def get_keyword_configs() -> dict:
@@ -366,7 +397,8 @@ def get_keyword_configs() -> dict:
         logger.error(f"Failed to get keyword configs: {e}")
         return {}
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
 
 
 def save_keyword_config(keyword: str, api_url: str, description: str = None):
@@ -421,7 +453,8 @@ def save_all_keyword_configs(configs: dict) -> bool:
         logger.error(f"Failed to save keyword configs: {e}")
         return False
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
 
 # ============================================================================
 # API KEY CONFIGURATIONS
@@ -450,7 +483,8 @@ def ensure_api_keys_table():
     except Exception as e:
         logger.error(f"Failed to create api_keys table: {e}")
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
 
 
 def get_api_keys() -> dict:
@@ -470,7 +504,8 @@ def get_api_keys() -> dict:
         logger.error(f"Failed to get api keys: {e}")
         return {}
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
 
 
 def save_api_key(provider: str, key_id: str = None, secret_key: str = None, base_url: str = None):
@@ -497,4 +532,5 @@ def save_api_key(provider: str, key_id: str = None, secret_key: str = None, base
         logger.error(f"Failed to save API key: {e}")
         return False
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
