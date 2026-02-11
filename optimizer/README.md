@@ -1,6 +1,6 @@
 # 🚀 Stock Parameter Optimizer
 
-GPU-accelerated parameter optimization for finding optimal buy/sell triggers using advanced VWAP-based momentum strategies.
+GPU-accelerated and Rust-parallel parameter optimization for finding optimal buy/sell triggers using advanced VWAP-based momentum strategies.
 
 ---
 
@@ -60,7 +60,8 @@ This approach combines:
 |---------|-------------|
 | **🧠 Bayesian Optimization** | Uses Optuna's TPE sampler for intelligent parameter search |
 | **📊 VWAP Momentum Strategy** | Advanced 4-condition adaptive entry system |
-| **🔥 GPU Acceleration** | RTX 3090 support via CuPy for 100,000+ parallel backtests |
+| **🔥 GPU Acceleration** | RTX 3089 EVGA support via CuPy for 100,000+ parallel backtests |
+| **🦀 Rust + Rayon Parallel** | Compiled Rust binary uses all 32 CPU threads (i9-13900K) |
 | **📈 Real-time Progress** | Live WebSocket progress bar with ETA |
 | **💾 PostgreSQL History** | All results saved with full trade logs |
 | **🔍 Trade Log Analysis** | See exactly why each trade was taken or skipped |
@@ -93,6 +94,41 @@ The trade log shows skip reasons like:
 - `stretch↑ (0.8%)` – Too extended above VWAP
 - `mom↓ (0.1%)` – Insufficient momentum
 
+### 4. Adaptive VWAP — Rust 🦀 (NEW)
+
+Same strategy as #3 but rewritten in **Rust** for blazing-fast parallel execution:
+
+- **Rayon** work-stealing parallelism across all 32 logical processors (i9-13900K)
+- **Zero shared mutable state** — each parameter combo gets an immutable borrow
+- **Parallel over population** — grid search combos distributed across threads
+- **Sequential inside backtest** — each backtest runs sequentially through bars
+- **569 KB binary** — compiled with LTO for maximum performance
+
+#### Architecture
+
+```
+Python Server (FastAPI)
+  ├── Fetches intraday data & builds VWAP metrics
+  ├── Serializes bars as JSON
+  ├── Pipes to Rust binary via stdin ────────┐
+  │                                          │
+  │   Rust Binary (rust_vwap)                ▼
+  │     ├── Deserializes JSON input
+  │     ├── Builds parameter combos
+  │     ├── Rayon par_iter() ──► 32 threads
+  │     │     ├── Thread 1: backtest(combo_1)
+  │     │     ├── Thread 2: backtest(combo_2)
+  │     │     ├── ...
+  │     │     └── Thread 32: backtest(combo_N)
+  │     ├── Collects best result
+  │     └── Writes JSON to stdout ───────────┐
+  │                                          │
+  ├── Parses result ◄────────────────────────┘
+  └── Generates trade log & sends to UI
+```
+
+Select **"Momentum 10am + VWAP (Rust 🦀)"** from the Algorithm dropdown to use it.
+
 ---
 
 ## Quick Start
@@ -113,7 +149,7 @@ Access at: **http://localhost:8082**
 
 ---
 
-## 🔥 GPU Mode (RTX 3090)
+## 🔥 GPU Mode (RTX 3089 EVGA)
 
 For maximum performance:
 
@@ -163,6 +199,7 @@ Expected: `INFO:root:CuPy loaded - GPU acceleration enabled`
 | Mode | Combinations | Time | Speedup |
 |------|--------------|------|---------|
 | **CPU (Optuna)** | 200 trials | ~40 sec | 1x |
+| **🦀 Rust (Rayon, 32 threads)** | 1,305 | ~0.5 sec | **80x** |
 | **GPU (Grid Search)** | 10,000 | ~2 sec | **20x** |
 | **GPU (Grid Search)** | 100,000 | ~10 sec | **200x** |
 
@@ -221,12 +258,16 @@ Delete a specific history entry.
 |------|-------------|
 | `server.py` | FastAPI WebSocket server with all algorithms |
 | `gpu_backtester.py` | CuPy GPU-accelerated batch backtester |
+| `rust_optimizer.py` | Python bridge to Rust binary (subprocess stdin/stdout) |
+| `rust_vwap/src/main.rs` | Rust VWAP backtester with Rayon parallelism |
+| `rust_vwap/Cargo.toml` | Rust dependencies (serde, serde_json, rayon) |
+| `vwap_backtester.py` | Standalone Python VWAP backtester |
 | `config.py` | API keys and database configuration |
 | `database.py` | PostgreSQL connection management |
 | `routers/history.py` | History API endpoints |
 | `routers/api_tester.py` | Multi-API price comparison tool |
 | `static/index.html` | Optimizer GUI |
-| `Dockerfile` | CPU container |
+| `Dockerfile` | Container with pre-built Rust binary |
 | `Dockerfile.gpu` | GPU container (CUDA 12.2) |
 
 ---
