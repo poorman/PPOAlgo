@@ -39,6 +39,7 @@ services:
   optimizer:
     build: ./optimizer
     restart: unless-stopped
+    command: ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--timeout-keep-alive", "60"]
     ports:
       - "8082:8000"
     env_file:

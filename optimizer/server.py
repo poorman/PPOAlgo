@@ -522,11 +522,11 @@ def get_cached_prices(symbol: str, timeframe: str, start_date: str, end_date: st
                 # Try legacy market_minute_bars if no data
                 if not rows:
                     cur.execute("""
-                        SELECT bar_date, open, high, low, close, volume
+                        SELECT ts, open, high, low, close, volume, vwap
                         FROM market_minute_bars
                         WHERE ticker = %s 
-                        AND bar_date >= %s AND bar_date <= %s
-                        ORDER BY bar_date
+                        AND ts >= %s AND ts <= %s
+                        ORDER BY ts
                     """, (symbol.upper(), start_date, end_date))
                     rows = cur.fetchall()
                     if rows:
@@ -2762,8 +2762,9 @@ async def optimize_stock(
                     "message": f"Finding optimal buy time for {symbol}...",
                 })
                 
-                # Get optimal timing
-                optimal_time = get_optimal_buy_time_simple(symbol, config.optimization_metric)
+                # Get optimal timing (CPU heavy)
+                loop = asyncio.get_event_loop()
+                optimal_time = await loop.run_in_executor(None, get_optimal_buy_time_simple, symbol, config.optimization_metric)
                 
                 result["optimal_buy_time_cdt"] = optimal_time
                 result["best_params"]["optimal_buy_time_cdt"] = optimal_time
@@ -2791,7 +2792,8 @@ async def optimize_stock(
             # If backtest dates differ, fetch new price data for backtest range
             if bt_start != config.start_date or bt_end != config.end_date:
                 logger.info(f"Fetching price data for backtest range: {bt_start} to {bt_end}")
-                backtest_bars = fetch_and_cache_prices(symbol, bt_start, bt_end)
+                loop = asyncio.get_event_loop()
+                backtest_bars = await loop.run_in_executor(None, fetch_and_cache_prices, symbol, bt_start, bt_end)
                 trade_log_bars = backtest_bars if backtest_bars else bars
             else:
                 trade_log_bars = bars
@@ -2806,18 +2808,21 @@ async def optimize_stock(
                 "message": f"Generating trade log ({n_trade_log_bars} bars)..."
             })
             
-            result["trade_log"] = generate_trade_log(
+            loop = asyncio.get_event_loop()
+            result["trade_log"] = await loop.run_in_executor(
+                None,
+                generate_trade_log,
                 trade_log_bars,
                 result["best_params"]["buy_trigger_pct"],
                 result["best_params"]["sell_trigger_pct"],
                 result["best_params"]["compound"],
                 config.capital,
-                algo=algo_type,
-                symbol=symbol,
-                start_date=bt_start,
-                end_date=bt_end,
-                stop_loss_pct=result["best_params"].get("stop_loss_pct"),
-                trailing_stop_pct=result["best_params"].get("trailing_stop_pct")
+                algo_type,
+                symbol,
+                bt_start,
+                bt_end,
+                result["best_params"].get("stop_loss_pct"),
+                result["best_params"].get("trailing_stop_pct")
             )
             result["backtest_start_date"] = bt_start
             result["backtest_end_date"] = bt_end
@@ -3124,7 +3129,7 @@ async def start_optimization(request: OptimizationRequest):
     # Run optimization in background
     async def run_all():
         results = {}
-        semaphore = asyncio.Semaphore(12)  # Increased to 12 as requested (i9-13900K has 32 threads)
+        semaphore = asyncio.Semaphore(30)  # Increased to 30 as requested (leaving 2 for GUI)
         
         async def optimize_wrapper(symbol):
             async with semaphore:
