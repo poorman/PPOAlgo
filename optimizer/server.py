@@ -3122,13 +3122,17 @@ async def start_optimization(request: OptimizationRequest):
     # Run optimization in background
     async def run_all():
         results = {}
-        semaphore = asyncio.Semaphore(16)  # Process 16 stocks at a time to keep it stable
+        semaphore = asyncio.Semaphore(4)  # Safer concurrency level to keep event loop responsive
         
         async def optimize_wrapper(symbol):
             async with semaphore:
                 if is_job_cancelled(job_id):
                     return None
-                return await optimize_stock(symbol, request, job_id)
+                try:
+                    return await optimize_stock(symbol, request, job_id)
+                except Exception as e:
+                    logger.error(f"Error optimizing {symbol}: {e}")
+                    return None
 
         # Create tasks for all symbols
         tasks = [optimize_wrapper(symbol) for symbol in request.symbols]
@@ -3136,6 +3140,8 @@ async def start_optimization(request: OptimizationRequest):
         # Run tasks in parallel and collect results
         completed_count = 0
         total_count = len(request.symbols)
+        
+        logger.info(f"Starting parallel optimization for {total_count} symbols (Job: {job_id})")
         
         for f in asyncio.as_completed(tasks):
             res = await f
@@ -3146,7 +3152,14 @@ async def start_optimization(request: OptimizationRequest):
                     optimization_results[symbol] = res
             
             completed_count += 1
-            if completed_count % 10 == 0 or completed_count == total_count:
+            if completed_count % 5 == 0 or completed_count == total_count:
+                await broadcast_message({
+                    "type": "job_progress",
+                    "job_id": job_id,
+                    "completed": completed_count,
+                    "total": total_count,
+                    "message": f"Global progress: {completed_count}/{total_count} stocks done"
+                })
                 logger.info(f"Job {job_id} progress: {completed_count}/{total_count} stocks completed")
         
         # Save results to file
@@ -3160,7 +3173,8 @@ async def start_optimization(request: OptimizationRequest):
         await broadcast_message({
             "type": "job_complete",
             "job_id": job_id,
-            "results": results
+            "results": results,
+            "message": f"All {total_count} stocks processed!"
         })
     
     asyncio.create_task(run_all())
