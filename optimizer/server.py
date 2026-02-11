@@ -3122,22 +3122,32 @@ async def start_optimization(request: OptimizationRequest):
     # Run optimization in background
     async def run_all():
         results = {}
-        for symbol in request.symbols:
-            # Check if job was cancelled
-            if is_job_cancelled(job_id):
-                logger.info(f"Job {job_id} cancelled, stopping at symbol {symbol}")
-                await broadcast_message({
-                    "type": "cancelled",
-                    "job_id": job_id,
-                    "message": "Optimization cancelled by user"
-                })
-                cancelled_jobs.discard(job_id)  # Clean up
-                return results
+        semaphore = asyncio.Semaphore(16)  # Process 16 stocks at a time to keep it stable
+        
+        async def optimize_wrapper(symbol):
+            async with semaphore:
+                if is_job_cancelled(job_id):
+                    return None
+                return await optimize_stock(symbol, request, job_id)
+
+        # Create tasks for all symbols
+        tasks = [optimize_wrapper(symbol) for symbol in request.symbols]
+        
+        # Run tasks in parallel and collect results
+        completed_count = 0
+        total_count = len(request.symbols)
+        
+        for f in asyncio.as_completed(tasks):
+            res = await f
+            if res:
+                symbol = res.get("symbol")
+                if symbol:
+                    results[symbol] = res
+                    optimization_results[symbol] = res
             
-            result = await optimize_stock(symbol, request, job_id)
-            if result:
-                results[symbol] = result
-                optimization_results[symbol] = result
+            completed_count += 1
+            if completed_count % 10 == 0 or completed_count == total_count:
+                logger.info(f"Job {job_id} progress: {completed_count}/{total_count} stocks completed")
         
         # Save results to file
         os.makedirs(RESULTS_DIR, exist_ok=True)
