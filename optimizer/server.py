@@ -1232,7 +1232,7 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
     
     # For ChatGPT algos, try to fetch 10AM prices (using cache)
     price_9am_map = {}
-    if algo in ("chatgpt", "chatgpt_stoploss", "chatgpt_vwap") and symbol and start_date and end_date:
+    if algo in ("chatgpt", "chatgpt_stoploss", "chatgpt_vwap", "chatgpt_vwap_rust") and symbol and start_date and end_date:
         try:
             logger.info(f"Fetching 9AM prices for {symbol} (ChatGPT algo) using cache")
             
@@ -1506,7 +1506,7 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
                 "equity": round(equity, 0),
                 "algo": "chatgpt_stoploss"
             })
-        elif algo == "chatgpt_vwap":
+        elif algo in ("chatgpt_vwap", "chatgpt_vwap_rust"):
             # =====================================================================
             # ChatGPT Adaptive VWAP Strategy
             # Entry: price > VWAP AND vwap_slope > β*or_vol AND vwap_stretch < α*or_vol
@@ -2521,6 +2521,137 @@ async def optimize_stock(
                     None,
                     run_chatgpt_9am_optimization,
                     bars_with_10am,
+                    config.capital,
+                    buy_range,
+                    sell_range,
+                    config.optimization_metric
+                )
+            elif algo_type == "chatgpt_vwap_rust":
+                # =====================================================================
+                # RUST Rayon-parallel VWAP Momentum 10am optimizer
+                # Same strategy as chatgpt_vwap but uses Rust + Rayon for parallelism
+                # across all CPU cores (32 threads on i9-13900K)
+                # =====================================================================
+                from rust_optimizer import run_rust_vwap_optimization
+                
+                await broadcast_message({
+                    "type": "status",
+                    "job_id": job_id,
+                    "symbol": symbol,
+                    "status": "fetching_vwap_data",
+                    "message": f"Fetching 10 AM prices and VWAP data for Rust optimizer..."
+                })
+                
+                # Fetch intraday data for 10AM prices and VWAP
+                intraday_bars = fetch_and_cache_prices(symbol, config.start_date, config.end_date, "1Min")
+                
+                # Build map of date -> {price_10am, vwap, vwap_940, or_high, or_low}
+                vwap_data_map = {}
+                bars_by_date = {}
+                for bar in intraday_bars or []:
+                    bar_time = bar.get("t", "")
+                    date_part = bar_time[:10] if bar_time else ""
+                    if date_part:
+                        if date_part not in bars_by_date:
+                            bars_by_date[date_part] = []
+                        bars_by_date[date_part].append(bar)
+                
+                for date_part, day_bars in bars_by_date.items():
+                    best_10am_bar = None
+                    best_10am_diff = 9999
+                    vwap_bars_list = []
+                    or_highs = []
+                    or_lows = []
+                    vwap_940_bars = []
+                    
+                    for bar in day_bars:
+                        bar_time = bar.get("t", "")
+                        et_minutes = get_et_minutes_from_timestamp(bar_time)
+                        if et_minutes is None:
+                            continue
+                        if 570 <= et_minutes <= 600:
+                            vwap_bars_list.append(bar)
+                            or_highs.append(bar.get("h", 0))
+                            or_lows.append(bar.get("l", 0))
+                        if 570 <= et_minutes <= 580:
+                            vwap_940_bars.append(bar)
+                        if 570 <= et_minutes <= 960:
+                            diff = abs(et_minutes - 600)
+                            if diff < best_10am_diff:
+                                best_10am_bar = bar
+                                best_10am_diff = diff
+                    
+                    price_10am = 0
+                    if best_10am_bar and best_10am_diff <= 5:
+                        price_10am = best_10am_bar.get("c", best_10am_bar.get("o", 0))
+                    
+                    cum_tpv, cum_vol = 0, 0
+                    for bar in vwap_bars_list:
+                        tp = (bar.get("h", 0) + bar.get("l", 0) + bar.get("c", 0)) / 3
+                        vol = bar.get("v", 0)
+                        cum_tpv += tp * vol
+                        cum_vol += vol
+                    vwap_to_10am = cum_tpv / cum_vol if cum_vol > 0 else (price_10am or 0)
+                    
+                    cum_tpv_940, cum_vol_940 = 0, 0
+                    for bar in vwap_940_bars:
+                        tp = (bar.get("h", 0) + bar.get("l", 0) + bar.get("c", 0)) / 3
+                        vol = bar.get("v", 0)
+                        cum_tpv_940 += tp * vol
+                        cum_vol_940 += vol
+                    vwap_940 = cum_tpv_940 / cum_vol_940 if cum_vol_940 > 0 else vwap_to_10am
+                    
+                    or_high = max(or_highs) if or_highs else (price_10am or 0)
+                    or_low = min(or_lows) if or_lows else (price_10am or 0)
+                    
+                    vwap_data_map[date_part] = {
+                        "price_10am": price_10am,
+                        "vwap": vwap_to_10am,
+                        "vwap_940": vwap_940,
+                        "or_high": or_high,
+                        "or_low": or_low,
+                    }
+                
+                logger.info(f"Found VWAP data for {len(vwap_data_map)} days for Rust VWAP")
+                
+                # Enrich daily bars with VWAP data
+                bars_with_vwap = []
+                for bar in bars:
+                    bar_date = bar.get("t", "")[:10] if bar.get("t") else ""
+                    new_bar = dict(bar)
+                    vwap_info = vwap_data_map.get(bar_date, {})
+                    new_bar["price_10am"] = vwap_info.get("price_10am", bar.get("o", 0))
+                    new_bar["vwap"] = vwap_info.get("vwap", bar.get("c", 0))
+                    new_bar["vwap_940"] = vwap_info.get("vwap_940", vwap_info.get("vwap", bar.get("c", 0)))
+                    new_bar["or_high"] = vwap_info.get("or_high", bar.get("h", 0))
+                    new_bar["or_low"] = vwap_info.get("or_low", bar.get("l", 0))
+                    bars_with_vwap.append(new_bar)
+                
+                buy_range = (0.001, 0.03, 0.001)
+                sell_range = (0.01, 0.10, 0.002)
+                
+                import numpy as np
+                total_combinations = len(np.arange(buy_range[0], buy_range[1], buy_range[2])) * \
+                                    len(np.arange(sell_range[0], sell_range[1], sell_range[2]))
+                
+                await broadcast_message({
+                    "type": "progress",
+                    "job_id": job_id,
+                    "symbol": symbol,
+                    "trials_completed": 0,
+                    "total_trials": total_combinations,
+                    "best_score": 0,
+                    "best_params": {},
+                    "phase": "rust_preparing",
+                    "message": f"🦀 Rust Rayon optimizer starting ({total_combinations} combos across 32 threads)..."
+                })
+                
+                # Run the Rust binary (parallel via Rayon)
+                loop = asyncio.get_event_loop()
+                gpu_result = await loop.run_in_executor(
+                    None,
+                    run_rust_vwap_optimization,
+                    bars_with_vwap,
                     config.capital,
                     buy_range,
                     sell_range,

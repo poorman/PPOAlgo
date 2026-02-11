@@ -1024,6 +1024,7 @@
                     <option value="chatgpt">Momentum 10am</option>
                     <option value="chatgpt_stoploss">Momentum Stop Loss</option>
                     <option value="chatgpt_vwap">Momentum 10am + VWAP</option>
+                    <option value="chatgpt_vwap_rust">Momentum 10am + VWAP (Rust 🦀)</option>
                 </select>
                 <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 0.25rem;">
                     <span id="algo-description">Buy on dip, sell on profit target</span>
@@ -1694,7 +1695,8 @@
             'default': 'Buy on dip, sell on profit target',
             'chatgpt': 'Buy at 10AM if price >= open+X%, sell at +Y% (optimized)',
             'chatgpt_stoploss': 'Momentum with Take Profit, Stop Loss, Trailing Stop + Trend Filter',
-            'chatgpt_vwap': 'Entry @ 10AM if price < VWAP (mean reversion) + TP/SL + Protect Winner'
+            'chatgpt_vwap': 'Entry @ 10AM if price < VWAP (mean reversion) + TP/SL + Protect Winner',
+            'chatgpt_vwap_rust': '🦀 Rust + Rayon parallel (32 threads) — same VWAP strategy, blazing fast'
         };
 
         // Handle algo selection change
