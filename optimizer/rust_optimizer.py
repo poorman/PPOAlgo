@@ -31,7 +31,8 @@ def run_rust_vwap_optimization(
     capital: float = 100000,
     buy_range: tuple = (0.001, 0.03, 0.001),
     sell_range: tuple = (0.01, 0.10, 0.002),
-    metric: str = "total_return"
+    metric: str = "total_return",
+    threads: int = None
 ) -> dict:
     """
     Run the VWAP Momentum 10am optimization using the Rust binary.
@@ -44,6 +45,7 @@ def run_rust_vwap_optimization(
         buy_range: (min, max, step) as decimals
         sell_range: (min, max, step) as decimals
         metric: "total_return", "sharpe", or "win_rate"
+        threads: Number of threads for Rayon (defaults to all cores)
         
     Returns:
         Dict with best_params, metrics, combinations_tested, threads_used
@@ -76,9 +78,13 @@ def run_rust_vwap_optimization(
     input_json = json.dumps(input_data)
     
     logger.info(f"[RUST] Starting Rayon-parallel VWAP optimization "
-                f"({len(bars)} bars, metric={metric})")
+                f"({len(bars)} bars, metric={metric}, threads={threads or 'all'})")
     
     start = time.time()
+    
+    env = os.environ.copy()
+    if threads:
+        env["RAYON_NUM_THREADS"] = str(threads)
     
     try:
         result = subprocess.run(
@@ -87,6 +93,7 @@ def run_rust_vwap_optimization(
             capture_output=True,
             text=True,
             timeout=120,  # 2 minute timeout
+            env=env
         )
         
         if result.returncode != 0:

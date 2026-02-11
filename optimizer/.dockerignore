@@ -1,0 +1,8 @@
+.git
+**/target/
+**/venv/
+**/.pytest_cache/
+**/__pycache__/
+*.log
+results/
+data/

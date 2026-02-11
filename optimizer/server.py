@@ -2647,7 +2647,7 @@ async def optimize_stock(
                     "best_score": 0,
                     "best_params": {},
                     "phase": "rust_preparing",
-                    "message": f"🦀 Rust Rayon optimizer starting ({total_combinations} combos across 32 threads)..."
+                    "message": f"🦀 Rust Rayon optimizer starting (30 stocks in parallel, 1 core each)..."
                 })
                 
                 # Run the Rust binary (parallel via Rayon)
@@ -2659,7 +2659,8 @@ async def optimize_stock(
                     config.capital,
                     buy_range,
                     sell_range,
-                    config.optimization_metric
+                    config.optimization_metric,
+                    1 # Use 1 thread per stock to allow 30 parallel stocks on a 32-core machine
                 )
             else:
                 # Default Dipper (breakout) strategy
