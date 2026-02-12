@@ -46,6 +46,7 @@ async def get_history(limit: int = 1000):
                     r.full_result->'metrics'->>'total_return' as total_return,
                     r.full_result->'metrics'->>'win_rate' as win_rate,
                     r.full_result->'metrics'->>'sharpe' as sharpe_from_json,
+                    r.full_result->'metrics'->>'final_equity' as final_equity,
                     r.full_result->>'duration_seconds' as duration_seconds,
                     r.full_result->>'method' as method,
                     r.full_result->>'algo' as algo,
@@ -76,7 +77,7 @@ async def get_history(limit: int = 1000):
                 # Convert Decimal to float
                 for key in ["buy_trigger_pct", "sell_trigger_pct", "stop_loss_pct", "score", 
                            "volatility_avg_range", "volatility_max_gain", 
-                           "volatility_score", "capital", "total_return", "win_rate", "sharpe_from_json"]:
+                           "volatility_score", "capital", "total_return", "win_rate", "sharpe_from_json", "final_equity"]:
                     if result.get(key) is not None:
                         try:
                             result[key] = float(result[key])
@@ -125,6 +126,7 @@ async def get_history_detail(item_id: int):
                     r.full_result->'metrics'->>'total_return' as total_return,
                     r.full_result->'metrics'->>'win_rate' as win_rate,
                     r.full_result->'metrics'->>'sharpe' as sharpe_from_json,
+                    r.full_result->'metrics'->>'final_equity' as final_equity,
                     r.full_result->>'duration_seconds' as duration_seconds,
                     r.full_result->>'method' as method,
                     r.full_result->>'algo' as algo,
@@ -156,7 +158,7 @@ async def get_history_detail(item_id: int):
                 
             for key in ["buy_trigger_pct", "sell_trigger_pct", "stop_loss_pct", "score", 
                        "volatility_avg_range", "volatility_max_gain", 
-                       "volatility_score", "capital", "total_return", "win_rate", "sharpe_from_json"]:
+                       "volatility_score", "capital", "total_return", "win_rate", "sharpe_from_json", "final_equity"]:
                 if result.get(key) is not None:
                     try:
                         result[key] = float(result[key])

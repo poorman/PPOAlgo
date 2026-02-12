@@ -8,4 +8,4 @@ fi
 echo "Running GPU warmup..."
 python3 /app/gpu_warmup.py
 echo "Starting server with 1 worker..."
-exec uvicorn server:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-keep-alive 60
+exec uvicorn server:app --host 0.0.0.0 --port 8082 --workers 1 --timeout-keep-alive 60

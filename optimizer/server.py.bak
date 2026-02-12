@@ -434,12 +434,12 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
             except Exception as e:
                 logger.error(f"Failed to fetch daily prices: {e}")
         else:
-            # Fetch intraday data in weekly chunks (API now paginates to get ALL bars)
+            # Fetch intraday data in monthly chunks (API limitation)
             current = datetime.strptime(fetch_start, "%Y-%m-%d")
             fetch_end_dt = datetime.strptime(fetch_end, "%Y-%m-%d")
             
             while current <= fetch_end_dt:
-                chunk_end = min(current + timedelta(days=7), fetch_end_dt)
+                chunk_end = min(current + timedelta(days=30), fetch_end_dt)
                 
                 try:
                     resp = requests.get(
@@ -450,7 +450,7 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
                             "end": chunk_end.strftime("%Y-%m-%d"),
                             "timeframe": "1Min"
                         },
-                        timeout=120  # Longer timeout — API now paginates through all bars
+                        timeout=60
                     )
                     # #region agent log
                     with open("/app/debug.log", "a") as _f:
@@ -459,26 +459,11 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
                     if resp.status_code == 200:
                         bars = resp.json()
                         if bars and len(bars) > 0:
-                            # Filter out daily bars that sometimes appear in minute response
-                            # Daily bars have timestamps at 05:00:00 UTC (market open aggregation)
-                            # Intraday bars have varying hours (pre-market starts at 08:00 UTC / 4AM ET)
-                            intraday_bars = []
-                            for b in bars:
-                                t = b.get("t", "")
-                                # Parse hour from ISO timestamp like "2024-01-02T14:30:00Z"
-                                if "T" in t:
-                                    try:
-                                        hour = int(t.split("T")[1].split(":")[0])
-                                        # Real intraday bars have hours between 08-21 UTC (4AM-4PM ET)
-                                        # Daily aggregate bars have T05:00:00Z (midnight ET)
-                                        if hour != 5:
-                                            intraday_bars.append(b)
-                                    except (ValueError, IndexError):
-                                        intraday_bars.append(b)  # Keep if unparseable
-                            
-                            if intraday_bars:
-                                save_prices_to_cache(symbol, timeframe, intraday_bars)
-                                logger.info(f"Cached {len(intraday_bars)} intraday bars for {symbol} ({current.strftime('%Y-%m-%d')} to {chunk_end.strftime('%Y-%m-%d')})")
+                            # Only save if we got intraday data (contains time component in timestamp)
+                            sample_t = bars[0].get("t", "")
+                            # Check for any time component (not just daily bars like "2024-01-01T05:00:00Z")
+                            if "T" in sample_t and not sample_t.endswith("T05:00:00Z"):
+                                save_prices_to_cache(symbol, timeframe, bars)
                 except Exception as e:
                     logger.error(f"Failed to fetch intraday prices: {e}")
                 
@@ -493,8 +478,9 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
 # WIDESURF API DATA FETCHER
 # ============================================================================
 
-# Widesurf API configuration — import from config.py for consistency
-from config import WIDESURF_API_KEY, WIDESURF_API_URL
+# Widesurf API configuration
+WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "2vOf7y2q0qrEkRI4NYOIAprAhFaEoHKglZMGrG2GUgE")
+WIDESURF_API_URL = os.getenv("WIDESURF_API_URL", "http://10.0.0.94:3000")
 
 def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, timeframe: str = "1Min", target_time: str = None) -> list:
     """
@@ -522,24 +508,25 @@ def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, time
         timespan = "minute"
     
     # Build Widesurf API URL
-    # Format: GET /v1/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}
-    # Time-sampled: GET /v1/aggs/ticker/{ticker}/range/1/minute/{from}/{to}/{target_time}
-    # IMPORTANT: Time-sampled endpoint ALWAYS uses "minute" as timespan, regardless of timeframe
+    # Format: GET https://api.widesurf.com/v1/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}
+    # Or with time: .../{from}/{to}/{target_time}
     if target_time:
-        url = f"{WIDESURF_API_URL}/v1/aggs/ticker/{symbol}/range/1/minute/{start_date}/{end_date}/{target_time}"
+        url = f"{WIDESURF_API_URL}/v1/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start_date}/{end_date}/{target_time}"
     else:
         url = f"{WIDESURF_API_URL}/v1/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start_date}/{end_date}"
     params = {
-        "apiKey": WIDESURF_API_KEY,
         "adjusted": "true",
         "sort": "asc",
         "limit": 50000  # Get as many bars as possible
     }
+    headers = {
+        "X-API-KEY": WIDESURF_API_KEY
+    }
     
-    logger.info(f"Fetching from Widesurf API: {symbol} {timeframe} {start_date} to {end_date}{' @' + target_time if target_time else ''}")
+    logger.info(f"Fetching from Widesurf API: {symbol} {timeframe} {start_date} to {end_date}")
     
     try:
-        resp = requests.get(url, params=params, timeout=60)
+        resp = requests.get(url, params=params, headers=headers, timeout=60)
         
         if resp.status_code == 200:
             data = resp.json()
@@ -673,10 +660,10 @@ async def get_widesurf_tickers(keyword: str):
     # Fallback to hardcoded defaults if not configured
     if not url or not url.startswith("http"):
         default_urls = {
-            'SPY500': f"http://10.0.0.94:1020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
-            'NASDAQ500': f"http://10.0.0.94:1020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
-            '1000': f"http://10.0.0.94:1020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=1000&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
-            '10000': f"http://10.0.0.94:1020/v1/reference/tickers?market=stocks&exchange=XNAS%2C+NYSE&active=true&order=desc&limit=10000&sort=transactions&type=limited&apiKey={WIDESURF_API_KEY}"
+            'SPY500': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
+            'NASDAQ500': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=500&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
+            '1000': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&active=true&order=desc&limit=1000&sort=volume&type=limited&apiKey={WIDESURF_API_KEY}",
+            '10000': f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&exchange=XNAS%2C+NYSE&active=true&order=desc&limit=10000&sort=transactions&type=limited&apiKey={WIDESURF_API_KEY}"
         }
         url = default_urls.get(keyword_upper)
         logger.info(f"Using fallback URL for {keyword_upper} (no database config found)")
@@ -722,7 +709,7 @@ async def get_widesurf_tickers(keyword: str):
 # Stock lists for static keywords
 SPY_500_STOCKS = "NVDA,AAPL,GOOG,GOOGL,MSFT,AMZN,AVGO,META,TSLA,BRK.B,WMT,LLY,JPM,V,ORCL,JNJ,MA,XOM,PLTR,NFLX,BAC,ABBV,COST,AMD,HD,PG,CSCO,UNH,GE,CVX,KO,CAT,WFC,IBM,MU,MS,GS,AXP,CRM,MRK,APP,RTX,PM,MCD,TMUS,TMO,AMAT,ABT,LRCX,PEP,C,DIS,ISRG,QCOM,GEV,BX,INTC,LIN,INTU,NOW,BLK,UBER,TJX,SCHW,T,AMGN,APH,BKNG,VZ,ANET,NEE,ACN,TXN,DHR,KLAC,GILD,BA,COF,SPGI,PFE,ADBE,UNP,LOW,ADI,ETN,BSX,PGR,SYK,PANW,CRWD,DE,MDT,KKR,WELL,PLD,HON,CB,COP,CEG,PH,VRTX,HOOD,HCA,LMT,NEM,ADP,BMY,CVS,MCK,CMCSA,NKE,MO,CME,DASH,SBUX,SO,ICE,GD,DELL,CDNS,SNPS,MMC,MMM,TT,DUK,APO,MCO,WM,UPS,AMT,USB,PNC,BK,GLW,SHW,ELV,NOC,MAR,ORLY,HWM,EMR,ABNB,REGN,RCL,CTAS,GM,ITW,AON,WMB,TDG,EQIX,ECL,WBD,CI,COIN,CMI,JCI,TEL,MNST,PWR,MDLZ,CSX,FCX,SPG,FDX,STX,COR,NSC,RSG,HLT,WDC,ADSK,AJG,TFC,TRV,CL,FTNT,MSI,AEP,SLB,KMI,EOG,PCAR,ROST,VST,WDAY,NXPI,SRE,PSX,PYPL,AZO,BDX,AFL,IDXX,MPC,DLR,F,APD,LHX,MET,ALL,NDAQ,URI,O,DDOG,VLO,ZTS,EA,D,GWW,EW,PSA,ROP,FAST,CAH,CBRE,MPWR,AME,BKR,ROK,OKE,AMP,CMG,AXON,DAL,CARR,DHI,FANG,TTWO,LVS,AIG,CTVA,XEL,TGT,EXC,FICO,ETR,MSCI,PAYX,YUM,PRU,OXY,GRMN,CTSH,A,KDP,CCI,KR,TRGP,TKO,VMC,PEG,GEHC,XYZ,IQV,EBAY,NUE,MLM,EL,HIG,CPRT,MCHP,WAB,HSY,RMD,KEYS,FISV,VTR,CCL,STT,SYY,SNDK,UAL,EQT,FIS,ED,EXPE,KMB,OTIS,XYL,ACGL,WEC,ODFL,KVUE,IR,LYV,NRG,PCG,HPE,RJF,HUM,FITB,TER,FOXA,MTB,WTW,CHTR,SYF,VRSK,VICI,FOX,EXR,LEN,IBKR,FSLR,DG,MTD,KHC,ADM,EME,ROL,CSGP,HBAN,DOV,TSCO,EXE,BRO,DTE,BR,ATO,EFX,DXCM,NTRS,WRB,ULTA,AEE,CBOE,STZ,IRM,DLTR,CINF,FE,AWK,ES,OMC,BIIB,TPR,STLD,CFG,JBL,AVB,PHM,STE,PPL,GIS,HUBB,TDY,VLTO,HAL,RF,CNP,LDOS,EQR,NTAP,DVN,WAT,HPQ,PPG,TROW,VRSN,KEY,WSM,ON,RL,EIX,LULU,CPAY,LH,L,NVR,DRI,PTC,CMS,LUV,TSN,PODD,IP,SBAC,EXPD,TPL,SMCI,DGX,CTRA,PFG,CHD,NI,CNC,TRMB,SW,WST,TYL,CDW,GPN,AMCR,JBHT,CHRW,INCY,GPC,PKG,ZBH,SNA,LII,BG,TTD,Q,MKC,FTV,DOW,DD,PNR,APTV,ESS,GEN,GDDY,EVRG,IT,WY,LNT,HOLX,INVH,J,IFF,COO,MAA,ALB,BBY,PSKY,FFIV,TXT,NWS,DECK,DPZ,ERIE,NWSA,LYB,SOLV,ALLE,AVY,UHS,ZBRA,KIM,EG,IEX,JKHY,MAS,VTRS,BALL,NDSN,HRL,UDR,WYNN,HII,BXP,HST,REG,CLX,AKAM,CF,BEN,BLDR,IVZ,SWK,DOC,HAS,RVTY,ALGN,EPAM,MRNA,AIZ,CPT,GL,DAY,FDS,SJM,PNW,MGM,SWKS,AES,GNRC,BAX,CRL,AOS,TECH,NCLH,TAP,APA,PAYC,HSIC,POOL,MOH,FRT,DVA,CPB,CAG,LW,MOS,SOLS,LKQ,ARE,MTCH,MHK"
 
-CAP_STOCK_LIST = "AAPL,MSFT,NVDA,GOOGL,GOOG,AMZN,META,BRK.A,BRK.B,LLY,AVGO,TSLA,JPM,V,UNH,XOM,MA,JNJ,HD,COST,PG,ABBV,MRK,ORCL,CRM,KO,PEP,ADBE,WMT,NFLX,AMD,LIN,CSCO,ACN,MCD,TMO,INTU,DIS,NKE,ABT,CVX,TXN,AMGN,IBM,PM,UPS,LOW,NEE,RTX,MS,GS,SPGI,BLK,ISRG,QCOM,CAT,DE,SBUX,EL,PLD,MDT,AMAT,ADI,LMT,GE,AXP,CB,MMC,CI,MO,BDX,ZTS,ICE,DUK,SO,EQIX,SHW,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,ADP,PAYX,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,ROKU,SPOT,UBER,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,ALK,BA,GD,NOC,LHX,TDG,URI,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,RSG,AWK,PCAR,CUMM,ALB,FCX,NEM,AA,STLD,NUE,CE,LYB,DOW,EMN,APTV,F,ROK,KEYS,AME,IR,XYL,TT,WAB,EFX,MTB,HBAN,RF,TFC,CFG,STT,NTRS,BK,AMP,IVZ,DFS,SYF,COIN,MSTR,RIOT,MARA,CHTR,CMCSA,VZ,T,TMUS,OKTA,WDAY,NOW,SQ,PYPL,INTC,TSM,ASML,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,FSLR,PLUG,BLDP,CHPT,QS,ON,STM,NXPI,INFY,CTSH,EPAM,DXC,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,SMAR,PSTG,NTNX,VMW,LOGI,EA,TTWO,MTCH,BMBL,PLTR,AI,UPST,AFRM,SOFI,HOOD,CLS,ONTO,FORM,SMCI,GRMN,TRMB,IRDM,VSAT,ASTS,RKLB,JOBY,ACHR,PL,MAXR,SPCE"
+CAP_STOCK_LIST = "AAPL,MSFT,NVDA,GOOGL,GOOG,AMZN,META,BRK.A,BRK.B,LLY,AVGO,TSLA,JPM,V,UNH,XOM,MA,JNJ,HD,COST,PG,ABBV,MRK,ORCL,CRM,KO,PEP,ADBE,WMT,NFLX,AMD,LIN,CSCO,ACN,MCD,TMO,INTU,DIS,NKE,ABT,CVX,TXN,AMGN,IBM,PM,UPS,LOW,NEE,RTX,MS,GS,SPGI,BLK,ISRG,QCOM,CAT,DE,SBUX,EL,PLD,MDT,AMAT,ADI,LMT,GE,AXP,CB,MMC,CI,MO,BDX,ZTS,ICE,DUK,SO,EQIX,SHW,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,ADP,PAYX,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,ROKU,SPOT,UBER,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,ALK,BA,GD,NOC,LHX,TDG,URI,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,RSG,AWK,PCAR,CUMM,ALB,FCX,NEM,AA,STLD,NUE,CE,LYB,DOW,EMN,APTV,F,ROK,KEYS,AME,IR,XYL,TT,WAB,EFX,MTB,HBAN,RF,TFC,CFG,STT,NTRS,BK,AMP,IVZ,DFS,SYF,COIN,MSTR,RIOT,MARA,CHTR,CMCSA,VZ,T,TMUS,ZS,OKTA,WDAY,NOW,SQ,PYPL,INTC,TSM,ASML,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,FSLR,PLUG,BLDP,CHPT,QS,ON,STM,NXPI,INFY,CTSH,EPAM,DXC,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,SMAR,PSTG,NTNX,VMW,LOGI,EA,TTWO,MTCH,BMBL,PLTR,AI,UPST,AFRM,SOFI,HOOD,CLS,ONTO,FORM,SMCI,GRMN,TRMB,IRDM,VSAT,ASTS,RKLB,JOBY,ACHR,PL,MAXR,SPCE"
 
 FULL_STOCK_LIST = "AAPL,MSFT,GOOGL,GOOG,AMZN,NVDA,META,TSLA,BRK.B,BRK.A,JPM,V,JNJ,UNH,HD,PG,MA,XOM,LLY,AVGO,CVX,MRK,COST,ABBV,PEP,KO,ORCL,CRM,ADBE,AMD,NFLX,TMO,WMT,DIS,ACN,LIN,MCD,CSCO,ABT,TXN,DHR,INTU,CAT,VZ,CMCSA,NEE,BAC,WFC,PM,UPS,RTX,IBM,MS,PFE,INTC,LOW,UNP,AMGN,SPGI,GS,AXP,BLK,ISRG,QCOM,AMAT,DE,GE,NKE,MDT,ADI,LMT,SBUX,PLD,CB,CVS,MMC,TGT,MO,CI,BDX,ZTS,EL,DUK,SO,EQIX,ICE,SHW,CL,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,PAYX,ADP,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,OKTA,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,SNAP,ROKU,SPOT,UBER,LYFT,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,JBLU,ALK,BA,TXT,SPR,GD,NOC,HII,LHX,TDG,HEI,MTZ,PWR,URI,WSM,BBY,GPC,AZO,KMX,AN,SAH,PAG,TSCO,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,PENN,CZR,RSG,AWK,PCAR,ALB,FCX,NEM,GOLD,AA,CLF,STLD,NUE,RS,X,MT,CE,LYB,DOW,EMN,APTV,F,LCID,RIVN,FSR,NIO,XPEV,LI,HMC,TM,POR,OGE,NRG,AES,ET,EPD,MPLX,PAA,KMI,WMB,OKE,ENB,TRP,EXAS,IQV,CTLT,CRL,INCY,ALNY,NBIX,UTHR,BMRN,SRPT,FOLD,PTCT,RARE,BLUE,EDIT,NTLA,CRSP,BEAM,AMED,SEM,HCA,UHS,CNC,MOH,ELV,MDGL,AXSM,GH,PACB,TXG,VCYT,NTRA,CDNA,MYGN,BTX,OMCL,CERS,TRMB,GRMN,IRDM,VSAT,ASTS,PLTR,SOUN,AI,BBAI,UPST,AFRM,SOFI,HOOD,COIN,MSTR,RIOT,MARA,CLSK,ONTO,FORM,ASML,TSM,UMC,SMCI,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,CSIQ,FSLR,ARRY,NEP,BEP,BEPC,PLUG,BLDP,FCEL,CHPT,EVGO,QS,FREY,ALGM,ON,STM,NXPI,INFY,WIT,CTSH,EPAM,DXC,TCS,SAP,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,WK,BL,SMAR,PSTG,NTNX,VMW,LOGI,SONY,EA,TTWO,MTCH,BMBL,SPCE,RKLB,ASTR,MAXR,PL,JOBY,ACHR,EH"
 
@@ -755,7 +742,7 @@ def get_default_keyword_configs():
             "description": "Top 1000 stocks by volume (Widesurf API)"
         },
         "10000": {
-            "api_url": f"http://10.0.0.94:1020/v1/reference/tickers?market=stocks&exchange=XNAS%2C+NYSE&active=true&order=desc&limit=10000&sort=transactions&type=limited&apiKey={WIDESURF_API_KEY}",
+            "api_url": f"http://10.0.0.94:8020/v1/reference/tickers?market=stocks&exchange=XNAS%2C+NYSE&active=true&order=desc&limit=10000&sort=transactions&type=limited&apiKey={WIDESURF_API_KEY}",
             "description": "Top 10,000 stocks by transactions (NASDAQ + NYSE)"
         }
     }
@@ -907,7 +894,7 @@ class OptimizationRequest(BaseModel):
     smart_timing: bool = False  # Enable optimal buy time optimization
     timing_approach: str = "sequential"  # "sequential" or "joint"
     algo: str = "default"  # "default" or "chatgpt"
-    data_source: str = "widesurf"  # "alpaca" or "widesurf" (widesurf has more historical data)
+    data_source: str = "alpaca"  # "alpaca" or "widesurf"
 
 
 class StockVolatilityAnalyzer:
@@ -1905,7 +1892,7 @@ async def optimize_stock(
                 download_msg = f"Downloading data for {symbol} ({cached_max} to {config.end_date})..."
     
     # Get data source for status messages
-    data_source = getattr(config, 'data_source', 'widesurf')
+    data_source = getattr(config, 'data_source', 'alpaca')
     data_source_label = "Widesurf API" if data_source == "widesurf" else "Alpaca API"
     
     if need_download or data_source == "widesurf":
@@ -1928,7 +1915,7 @@ async def optimize_stock(
     # Fetch price data with caching (downloads missing ranges automatically)
     try:
         # Use data source from config (default: alpaca)
-        data_source = getattr(config, 'data_source', 'widesurf')
+        data_source = getattr(config, 'data_source', 'alpaca')
         
         loop = asyncio.get_event_loop()
         if data_source == "widesurf":
@@ -2331,6 +2318,7 @@ async def optimize_stock(
                     "phase": "gpu_preparing"
                 })
                 
+                # Use SAME optimization as ChatGPT 9AM (no VWAP filter during optimization)
                 loop = asyncio.get_event_loop()
                 gpu_result = await loop.run_in_executor(
                     None,
@@ -2361,25 +2349,10 @@ async def optimize_stock(
                 # Fetch intraday data for 10AM prices and VWAP using optimized "exact time" API if using Widesurf
                 if data_source == "widesurf":
                     logger.info(f"Using optimized Widesurf Time-Sampled API for {symbol}")
-                    # Try the time-sampled endpoints but with a shorter timeout
-                    bars_1000 = []
-                    bars_0940 = []
-                    try:
-                        bars_1000 = await asyncio.wait_for(
-                            loop.run_in_executor(None, fetch_prices_from_widesurf, symbol, config.start_date, config.end_date, "1Day", "1000"),
-                            timeout=15
-                        )
-                    except (asyncio.TimeoutError, Exception) as e:
-                        logger.warning(f"Time-sampled 10AM API failed for {symbol}: {e} — will estimate from daily bars")
-                    
-                    if bars_1000:
-                        try:
-                            bars_0940 = await asyncio.wait_for(
-                                loop.run_in_executor(None, fetch_prices_from_widesurf, symbol, config.start_date, config.end_date, "1Day", "0940"),
-                                timeout=15
-                            )
-                        except (asyncio.TimeoutError, Exception) as e:
-                            logger.warning(f"Time-sampled 9:40AM API failed for {symbol}: {e}")
+                    # Fetch 10:00 AM aggregates (gives price_10am, and VWAP/OR up to 10am)
+                    bars_1000 = await loop.run_in_executor(None, fetch_prices_from_widesurf, symbol, config.start_date, config.end_date, "1Day", "1000")
+                    # Fetch 9:40 AM aggregates (gives VWAP up to 9:40am)
+                    bars_0940 = await loop.run_in_executor(None, fetch_prices_from_widesurf, symbol, config.start_date, config.end_date, "1Day", "0940")
                     
                     # Create lookup for 9:40 VWAP
                     vwap_940_lookup = {b["t"][:10]: b.get("vw", b.get("c", 0)) for b in bars_0940}
@@ -2474,52 +2447,17 @@ async def optimize_stock(
                 logger.info(f"Found VWAP data for {len(vwap_data_map)} days for Rust VWAP")
                 
                 # Enrich daily bars with VWAP data
-                # When time-sampled data is missing, estimate price_10am from daily bars:
-                #   - Use daily VWAP (vw field) as the VWAP reference
-                #   - Estimate price_10am as open + 30% of daily range (typical by 10AM)
                 bars_with_vwap = []
-                enriched_from_daily = 0
                 for bar in bars:
                     bar_date = bar.get("t", "")[:10] if bar.get("t") else ""
                     new_bar = dict(bar)
                     vwap_info = vwap_data_map.get(bar_date, {})
-                    
-                    if vwap_info and vwap_info.get("price_10am", 0) > 0:
-                        # Got real intraday data
-                        new_bar["price_10am"] = vwap_info["price_10am"]
-                        new_bar["vwap"] = vwap_info.get("vwap", bar.get("vw", bar.get("c", 0)))
-                        new_bar["vwap_940"] = vwap_info.get("vwap_940", new_bar["vwap"])
-                        new_bar["or_high"] = vwap_info.get("or_high", bar.get("h", 0))
-                        new_bar["or_low"] = vwap_info.get("or_low", bar.get("l", 0))
-                    else:
-                        # Estimate from daily bar — use VWAP and price estimate
-                        o = float(bar.get("o", 0))
-                        h = float(bar.get("h", 0))
-                        l = float(bar.get("l", 0))
-                        c = float(bar.get("c", 0))
-                        vw = float(bar.get("vw", 0))
-                        
-                        # Estimate 10AM price as open + 30% of (close - open)
-                        # This approximates ~30 min of morning movement in a 6.5hr trading day
-                        if o > 0:
-                            price_10am_est = o + 0.3 * (c - o)
-                            # Clamp to daily range
-                            price_10am_est = max(l, min(h, price_10am_est))
-                        else:
-                            price_10am_est = c
-                        
-                        new_bar["price_10am"] = price_10am_est
-                        new_bar["vwap"] = vw if vw > 0 else (o + h + l + c) / 4
-                        new_bar["vwap_940"] = new_bar["vwap"]
-                        new_bar["or_high"] = o + 0.3 * (h - o) if o > 0 else h
-                        new_bar["or_low"] = o + 0.3 * (l - o) if o > 0 else l
-                        enriched_from_daily += 1
-                    
+                    new_bar["price_10am"] = vwap_info.get("price_10am", bar.get("o", 0))
+                    new_bar["vwap"] = vwap_info.get("vwap", bar.get("c", 0))
+                    new_bar["vwap_940"] = vwap_info.get("vwap_940", vwap_info.get("vwap", bar.get("c", 0)))
+                    new_bar["or_high"] = vwap_info.get("or_high", bar.get("h", 0))
+                    new_bar["or_low"] = vwap_info.get("or_low", bar.get("l", 0))
                     bars_with_vwap.append(new_bar)
-                
-                if enriched_from_daily > 0:
-                    logger.warning(f"{symbol}: Estimated 10AM data from daily bars for {enriched_from_daily}/{len(bars)} days (time-sampled API unavailable)")
-
                 
                 buy_range = (0.001, 0.03, 0.001)
                 sell_range = (0.01, 0.10, 0.002)
@@ -2702,7 +2640,7 @@ async def optimize_stock(
             
             # Add algo and data_source to result
             algo_type = getattr(config, 'algo', 'default') or 'default'
-            data_source = getattr(config, 'data_source', 'widesurf')
+            data_source = getattr(config, 'data_source', 'alpaca')
             logger.info(f"[GPU] Generating trade log for {symbol} with algo={algo_type}, data_source={data_source}")
             result["algo"] = algo_type
             result["data_source"] = data_source
@@ -2749,20 +2687,6 @@ async def optimize_stock(
             )
             result["backtest_start_date"] = bt_start
             result["backtest_end_date"] = bt_end
-            
-            # Recalculate metrics from actual trade log (matches backtest table)
-            trade_log = result.get("trade_log", [])
-            if trade_log:
-                bought_trades = [t for t in trade_log if t.get("bought")]
-                winning = [t for t in bought_trades if (t.get("profit") or 0) > 0]
-                bt_win_rate = len(winning) / len(bought_trades) if bought_trades else 0
-                last_equity = trade_log[-1].get("equity", config.capital)
-                bt_total_return = (last_equity - config.capital) / config.capital
-                result["metrics"]["win_rate"] = round(bt_win_rate, 4)
-                result["metrics"]["total_return"] = round(bt_total_return, 4)
-                result["metrics"]["final_equity"] = round(last_equity, 0)
-                result["metrics"]["total_trades"] = len(bought_trades)
-                logger.info(f"[{symbol}] Backtest metrics: win={bt_win_rate:.1%}, ret={bt_total_return:.1%}, equity=${last_equity:,.0f}")
             
             # Broadcast: Saving to database
             await broadcast_message({
@@ -2955,7 +2879,7 @@ async def optimize_stock(
 
     # Add algo and data_source to result
     algo_type = getattr(config, 'algo', 'default') or 'default'
-    data_source = getattr(config, 'data_source', 'widesurf')
+    data_source = getattr(config, 'data_source', 'alpaca')
     logger.info(f"Generating trade log for {symbol} with algo={algo_type}, data_source={data_source}")
     result["algo"] = algo_type
     result["data_source"] = data_source
@@ -2991,20 +2915,6 @@ async def optimize_stock(
     )
     result["backtest_start_date"] = bt_start
     result["backtest_end_date"] = bt_end
-    
-    # Recalculate metrics from actual trade log (matches backtest table)
-    trade_log = result.get("trade_log", [])
-    if trade_log:
-        bought_trades = [t for t in trade_log if t.get("bought")]
-        winning = [t for t in bought_trades if (t.get("profit") or 0) > 0]
-        bt_win_rate = len(winning) / len(bought_trades) if bought_trades else 0
-        last_equity = trade_log[-1].get("equity", config.capital)
-        bt_total_return = (last_equity - config.capital) / config.capital
-        result["metrics"]["win_rate"] = round(bt_win_rate, 4)
-        result["metrics"]["total_return"] = round(bt_total_return, 4)
-        result["metrics"]["final_equity"] = round(last_equity, 0)
-        result["metrics"]["total_trades"] = len(bought_trades)
-        logger.info(f"[{symbol}] Backtest metrics: win={bt_win_rate:.1%}, ret={bt_total_return:.1%}, equity=${last_equity:,.0f}")
     
     # Save result to database
     history_id = save_result_to_db(job_id, result)
@@ -3083,32 +2993,42 @@ async def start_optimization(request: OptimizationRequest):
     # Run optimization in background using a Hybrid Dual-Engine Worker Pool
     async def run_all():
         results = {}
-        # Deduplicate symbols while preserving order
-        request.symbols = list(dict.fromkeys(request.symbols))
+        queue = asyncio.Queue()
+        for s in request.symbols:
+            queue.put_nowait(s)
+            
         total_count = len(request.symbols)
         completed_count = 0
         
-        async def worker(worker_id, work_queue, engine_type='cpu'):
+        async def worker(worker_id, engine_type='cpu'):
             nonlocal completed_count
             logger.info(f"Worker {worker_id} ({engine_type}) started")
-            while not work_queue.empty():
+            while not queue.empty():
                 if is_job_cancelled(job_id): break
                 try:
-                    symbol = await work_queue.get()
+                    symbol = await queue.get()
                     start_time = time.time()
                     logger.info(f"Worker {worker_id} ({engine_type}) starting {symbol}")
                     res = await optimize_stock(symbol, request, job_id, engine_override=engine_type)
                     duration = time.time() - start_time
                     if res:
-                        # optimize_stock already saves to DB and broadcasts 'complete'
+                        # Already saved inside optimize_stock!
                         results[symbol] = res
                         optimization_results[symbol] = res
                         logger.info(f"Worker {worker_id} ({engine_type}) finished {symbol} in {duration:.2f}s")
+                        
+                        # Broadcast completion for this specific symbol
+                        await broadcast_message({
+                            "type": "complete",
+                            "job_id": job_id,
+                            "symbol": symbol,
+                            "result": res
+                        })
                     else:
                         logger.warning(f"Worker {worker_id} ({engine_type}) failed {symbol} in {duration:.2f}s")
                     
                     completed_count += 1
-                    work_queue.task_done()
+                    queue.task_done()
                     
                     # Periodic progress updates
                     if completed_count % 5 == 0 or completed_count == total_count:
@@ -3122,48 +3042,21 @@ async def start_optimization(request: OptimizationRequest):
                         logger.info(f"Job {job_id} progress: {completed_count}/{total_count} ({engine_type} worker {worker_id} finished {symbol})")
                 except Exception as e:
                     logger.error(f"Worker {worker_id} error: {e}")
-                    if not work_queue.empty(): work_queue.task_done()
+                    if not queue.empty(): queue.task_done()
 
+        # Launch 1 GPU Worker and 30 CPU Workers (31 total workers for 32 cores)
         workers = []
+        # GPU Worker (Super fast for massive batches)
+        workers.append(asyncio.create_task(worker("GPU-1", engine_type='gpu')))
         
-        if request.use_gpu and GPU_BACKTEST_AVAILABLE:
-            # Dual-queue: GPU gets ~40% of stocks (GPU is 10-50x faster per stock)
-            gpu_queue = asyncio.Queue()
-            cpu_queue = asyncio.Queue()
-            gpu_share = max(1, int(total_count * 0.4))  # 40% to GPU
-            symbols_list = list(request.symbols)
+        # CPU Workers (30 parallel processes)
+        for i in range(30):
+            workers.append(asyncio.create_task(worker(f"CPU-{i+1}", engine_type='cpu')))
             
-            for i, s in enumerate(symbols_list):
-                if i < gpu_share:
-                    gpu_queue.put_nowait(s)
-                else:
-                    cpu_queue.put_nowait(s)
-            
-            logger.info(f"Hybrid dispatch: GPU={gpu_share} stocks, CPU={total_count - gpu_share} stocks")
-            
-            # 1 GPU Worker processing its dedicated queue
-            workers.append(asyncio.create_task(worker("GPU-1", gpu_queue, engine_type='gpu')))
-            
-            # 30 CPU Workers processing CPU queue
-            for i in range(30):
-                workers.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
-        else:
-            # CPU-only mode: single queue
-            cpu_queue = asyncio.Queue()
-            for s in request.symbols:
-                cpu_queue.put_nowait(s)
-            
-            # 30 CPU Workers
-            for i in range(30):
-                workers.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
-            
-        # Wait for all workers to finish their work in the queues
-        if request.use_gpu and GPU_BACKTEST_AVAILABLE:
-            await asyncio.gather(gpu_queue.join(), cpu_queue.join())
-        else:
-            await cpu_queue.join()
+        # Wait for all workers to finish their work in the queue
+        await queue.join()
         
-        # Cancel workers once queues are empty
+        # Cancel workers once queue is empty
         for w in workers: w.cancel()
         
         # Save results to file
@@ -3356,28 +3249,6 @@ async def clear_price_cache(symbol: str, timeframe: str = None):
         return {"status": "ok", "message": f"Cache cleared for {symbol}"}
     except Exception as e:
         logger.error(f"Failed to clear cache: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        release_db_conn(conn)
-
-
-@app.delete("/api/price-cache")
-async def clear_all_price_cache():
-    """Clear all price cache data."""
-    conn = get_db_conn()
-    if not conn:
-        raise HTTPException(status_code=500, detail="Database connection failed")
-    
-    try:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM price_cache")
-            deleted_bars = cur.rowcount
-            cur.execute("DELETE FROM price_cache_meta")
-            deleted_meta = cur.rowcount
-        conn.commit()
-        return {"status": "ok", "message": f"All cache cleared ({deleted_bars} bars, {deleted_meta} symbols)"}
-    except Exception as e:
-        logger.error(f"Failed to clear all cache: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         release_db_conn(conn)

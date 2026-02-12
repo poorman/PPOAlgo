@@ -1,0 +1,43 @@
+# GPU-enabled optimizer with CUDA support (CUDA 11.8 for maximum compatibility)
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
+
+# Install Python
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install dependencies including CuPy for GPU acceleration
+RUN pip3 install --no-cache-dir \
+    fastapi \
+    uvicorn[standard] \
+    optuna \
+    requests \
+    numpy \
+    websockets \
+    psycopg2-binary \
+    cupy-cuda11x \
+    tzdata
+
+# Copy application files
+COPY server.py /app/
+COPY gpu_backtest.py /app/
+COPY gpu_warmup.py /app/
+COPY static /app/static/
+
+# Create results directory
+RUN mkdir -p /app/results
+
+# Create startup script that warms up GPU before starting server (4 workers for concurrency)
+# Create startup script that warms up GPU before starting server (1 worker manages all internal parallel tasks)
+RUN echo '#!/bin/bash\necho "Checking for NVIDIA GPU..."\nif command -v nvidia-smi &> /dev/null; then nvidia-smi || echo "GPU detected but nvidia-smi failed (standard in WSL2)"; else echo "nvidia-smi not found"; fi\necho "Running GPU warmup..."\npython3 /app/gpu_warmup.py\necho "Starting server with 1 worker..."\nexec uvicorn server:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-keep-alive 60' > /app/start.sh && chmod +x /app/start.sh
+
+EXPOSE 8000
+
+# Set CUDA environment
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+CMD ["/bin/bash", "/app/start.sh"]

@@ -1067,12 +1067,150 @@ def run_chatgpt_stoploss_optimization(
         }
 
 
+class GPUChatGPTVWAPBacktester:
+    """
+    GPU-accelerated backtester for ChatGPT VWAP Strategy.
+    
+    Strategy:
+    - Buy at 10 AM if price_10am >= open * (1 + entry_trigger) AND price_10am > VWAP
+    - Take profit when high >= entry_price * (1 + take_profit)
+    - Stop loss when low <= entry_price * (1 + stop_loss)  [stop_loss is negative]
+    - Exit at close if neither TP nor SL hit
+    
+    Requires daily bars with 'price_10am', 'vwap', 'or_high', 'or_low' fields.
+    """
+    
+    def __init__(self, bars: list, capital: float = 100000):
+        self.capital = capital
+        self.n_bars = len(bars)
+        
+        # Extract price data
+        self.open_list = [float(b.get("o", b.get("c", 0))) for b in bars]
+        self.high_list = [float(b.get("h", b.get("c", 0))) for b in bars]
+        self.low_list = [float(b.get("l", b.get("c", 0))) for b in bars]
+        self.close_list = [float(b.get("c", 0)) for b in bars]
+        self.price_10am_list = [float(b.get("price_10am", 0)) for b in bars]
+        self.vwap_list = [float(b.get("vwap", 0)) for b in bars]
+        
+        logger.info(f"GPUChatGPTVWAPBacktester initialized with {self.n_bars} bars, GPU={GPU_AVAILABLE}")
+    
+    def _run_single(self, entry_trigger: float, take_profit: float, stop_loss: float) -> dict:
+        """Run a single backtest with given parameters."""
+        capital = self.capital
+        cash = capital
+        total_trades = 0
+        winning_trades = 0
+        max_drawdown = 0
+        peak_value = capital
+        
+        for i in range(self.n_bars):
+            open_price = self.open_list[i]
+            high = self.high_list[i]
+            low = self.low_list[i]
+            close = self.close_list[i]
+            price_10am = self.price_10am_list[i]
+            vwap = self.vwap_list[i]
+            
+            if open_price <= 0 or price_10am <= 0 or vwap <= 0:
+                continue
+            
+            # Entry condition: price_10am >= open*(1+entry_trigger) AND price_10am > VWAP
+            buy_threshold = open_price * (1 + entry_trigger)
+            if price_10am < buy_threshold or price_10am <= vwap:
+                continue
+            
+            # We have a buy signal
+            entry_price = price_10am
+            shares = cash / entry_price
+            total_trades += 1
+            
+            # Check TP/SL
+            tp_price = entry_price * (1 + take_profit)
+            sl_price = entry_price * (1 + stop_loss)  # stop_loss is negative
+            
+            # Determine exit price
+            if high >= tp_price:
+                exit_price = tp_price
+            elif low <= sl_price:
+                exit_price = sl_price
+            else:
+                exit_price = close
+            
+            profit = shares * (exit_price - entry_price)
+            cash += profit
+            
+            if profit > 0:
+                winning_trades += 1
+            
+            # Track drawdown
+            if cash > peak_value:
+                peak_value = cash
+            dd = (peak_value - cash) / peak_value if peak_value > 0 else 0
+            if dd > max_drawdown:
+                max_drawdown = dd
+        
+        total_return = (cash - capital) / capital if capital > 0 else 0
+        win_rate = winning_trades / total_trades if total_trades > 0 else 0
+        
+        return {
+            "total_return": total_return,
+            "win_rate": win_rate,
+            "total_trades": total_trades,
+            "max_drawdown": max_drawdown,
+            "final_value": cash,
+        }
+    
+    def grid_search(
+        self,
+        entry_range: tuple = (0.005, 0.025, 0.002),
+        tp_range: tuple = (0.015, 0.045, 0.008),
+        sl_range: tuple = (-0.015, -0.003, 0.004),
+        metric: str = "total_return",
+        progress_callback=None
+    ) -> dict:
+        """
+        Run exhaustive 3D grid search over entry, take_profit, stop_loss.
+        """
+        entry_triggers = np.arange(entry_range[0], entry_range[1], entry_range[2])
+        tp_triggers = np.arange(tp_range[0], tp_range[1], tp_range[2])
+        sl_triggers = np.arange(sl_range[0], sl_range[1], sl_range[2])
+        
+        n_combinations = len(entry_triggers) * len(tp_triggers) * len(sl_triggers)
+        logger.info(f"VWAP Grid Search: {n_combinations} combinations ({len(entry_triggers)}x{len(tp_triggers)}x{len(sl_triggers)})")
+        
+        best_score = float('-inf')
+        best_params = None
+        best_result = None
+        tested = 0
+        
+        for entry in entry_triggers:
+            for tp in tp_triggers:
+                for sl in sl_triggers:
+                    result = self._run_single(float(entry), float(tp), float(sl))
+                    score = result.get(metric, 0)
+                    tested += 1
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_params = {"entry_trigger": float(entry), "take_profit": float(tp), "stop_loss": float(sl)}
+                        best_result = result
+                    
+                    if progress_callback and tested % 50 == 0:
+                        progress_callback(tested, n_combinations, best_score)
+        
+        return {
+            "best_params": best_params,
+            "best_result": best_result,
+            "n_combinations": n_combinations,
+            "best_score": best_score,
+        }
+
+
 def run_chatgpt_vwap_optimization(
     bars: list,
     capital: float = 100000,
-    entry_range: tuple = (0.005, 0.025, 0.002),
-    tp_range: tuple = (0.015, 0.045, 0.008),
-    sl_range: tuple = (-0.015, -0.003, 0.004),
+    buy_range: tuple = (0.001, 0.03, 0.001),
+    sell_range: tuple = (0.01, 0.10, 0.002),
     metric: str = "total_return",
     progress_callback=None
 ) -> dict:
@@ -1083,8 +1221,15 @@ def run_chatgpt_vwap_optimization(
     - Price_10AM >= Open * (1 + entry_trigger)
     - Price_10AM > VWAP
     
-    Searches over entry, TP, and SL parameters.
+    Uses buy_range as entry_trigger range, sell_range as take_profit range,
+    and auto-computes stop_loss range from buy_range.
     """
+    # Map buy_range -> entry_trigger, sell_range -> take_profit
+    # Auto-compute sl_range as negative of buy_range
+    entry_range = buy_range
+    tp_range = sell_range
+    sl_range = (-buy_range[1], -buy_range[0], buy_range[2])  # Negative mirror of buy_range
+    
     backtester = GPUChatGPTVWAPBacktester(bars, capital)
     search_result = backtester.grid_search(entry_range, tp_range, sl_range, metric, progress_callback)
     

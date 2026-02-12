@@ -1046,6 +1046,11 @@
                     title="Clear cached data to fetch fresh VWAP values">
                     🗑️ Clear Cache (Refresh VWAP)
                 </button>
+                <button id="clear-all-cache-btn" type="button" onclick="clearAllPriceCache()"
+                    style="margin-top: 4px; padding: 6px 12px; background: rgba(239, 68, 68, 0.35); color: #ff6b6b; border: 1px solid rgba(239, 68, 68, 0.6); border-radius: 6px; font-size: 0.7rem; cursor: pointer; display: flex; align-items: center; gap: 4px;"
+                    title="Clear ALL cached price data for every symbol">
+                    🗑️ Clear All Cache
+                </button>
                 <div
                     style="margin-top: 8px; padding: 10px; background: rgba(29, 155, 240, 0.1); border-radius: 8px; border-left: 3px solid var(--accent);">
                     <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px;">Quick Keywords:
@@ -1109,8 +1114,8 @@
             <div class="form-group">
                 <label>📊 API Historic Data Source</label>
                 <select id="data-source">
+                    <option value="widesurf" selected>Widesurf API</option>
                     <option value="alpaca">Alpaca API</option>
-                    <option value="widesurf">Widesurf API</option>
                 </select>
                 <small style="color: var(--text-secondary); font-size: 0.7rem; margin-top: 0.25rem; display: block;">
                     Select the data provider for historical price data
@@ -1763,6 +1768,30 @@
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = '🗑️ Clear Cache (Refresh VWAP)';
+            }
+        }
+
+        async function clearAllPriceCache() {
+            if (!confirm('Clear ALL cached price data for every symbol? This will force fresh downloads on next optimization.')) {
+                return;
+            }
+            const btn = document.getElementById('clear-all-cache-btn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Clearing all...';
+            try {
+                const res = await fetch('/api/price-cache', { method: 'DELETE' });
+                const data = await res.json();
+                if (res.ok) {
+                    log(`✅ ${data.message}`, 'success');
+                } else {
+                    log(`❌ Failed: ${data.detail || 'Unknown error'}`, 'error');
+                }
+                checkSymbolCache();
+            } catch (error) {
+                log(`❌ Failed to clear all cache: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🗑️ Clear All Cache';
             }
         }
 
@@ -2687,17 +2716,26 @@
             btn.textContent = '⏳ Loading...';
             btn.disabled = true;
 
-            try {
-                // Load cached symbols list first
-                await loadCachedSymbolsList();
+            // Show loading state in history list
+            document.getElementById('history-list').innerHTML =
+                '<div class="empty-state" style="padding: 1rem;"><p>⏳ Loading history...</p></div>';
 
-                const resp = await fetch('/api/history');
-                historyData = await resp.json();
+            try {
+                // Load history and cached symbols list in parallel (non-blocking)
+                // If cache symbols fails, history still loads (just without DB icons)
+                const [historyResp] = await Promise.all([
+                    fetch('/api/history'),
+                    loadCachedSymbolsList().catch(e => console.warn('Cache symbols load failed (non-critical):', e))
+                ]);
+                if (!historyResp.ok) throw new Error(`HTTP ${historyResp.status}`);
+                historyData = await historyResp.json();
                 // Update counter
                 document.getElementById('history-count').textContent = `(${historyData.length})`;
                 sortAndRenderHistory();
             } catch (e) {
                 console.error('Failed to load history:', e);
+                document.getElementById('history-list').innerHTML =
+                    '<div class="empty-state" style="padding: 1rem; color: #ef4444;"><p>❌ Failed to load history</p><p style="font-size: 0.7rem; opacity: 0.7;">Check console for details. Click refresh to retry.</p></div>';
             } finally {
                 btn.textContent = originalText;
                 btn.disabled = false;
@@ -2857,11 +2895,8 @@
                                                         <div class="history-date">${formatDate(item.created_at)}</div>
                                                         <div class="history-score">
                                                             win: ${item.win_rate != null ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'} |
-                                                            ret: ${item.total_return != null ? (parseFloat(item.total_return) * 100).toFixed(0) + '%' : 'N/A'}
-                                                        </div>
-                                                        <div class="history-score" style="font-size: 0.65rem; opacity: 0.8;">
-                                                            fin: ${item.total_return != null ? ((parseFloat(item.total_return) + 1) * 100).toFixed(1) + '%' : 'N/A'} | 
-                                                            win: ${item.win_rate != null ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'}
+                                                            ret: ${item.total_return != null ? (parseFloat(item.total_return) * 100).toFixed(1) + '%' : 'N/A'} |
+                                                            fin: ${item.total_return != null ? ((parseFloat(item.total_return) + 1) * 100).toFixed(1) + '%' : 'N/A'}
                                                         </div>
                                                     </div>
                                                     <button class="delete-btn" onclick="event.stopPropagation(); deleteHistoryItem(${item.id})" title="Delete">🗑️</button>
@@ -2938,14 +2973,25 @@
             try {
                 log(`Loading details for history #${id}...`, 'info');
 
-                // Fetch full details including trade_log
+                // Show immediately from local cache (fast - no network round trip)
+                const cachedItem = historyData.find(h => h.id === id);
+                if (cachedItem) {
+                    showHistoryDetail({ ...cachedItem, trade_log: cachedItem.trade_log || [] });
+                }
+
+                // Fetch full details including trade_log in background
                 const resp = await fetch(`/api/history/${id}`);
                 if (!resp.ok) throw new Error('Failed to fetch details');
                 const item = await resp.json();
 
+                // Update with full data (includes trade_log for Analysis tab)
                 showHistoryDetail(item);
             } catch (e) {
                 log(`Failed to load history item: ${e.message}`, 'error');
+                // If we already showed cached data, the user at least sees something
+                if (!historyData.find(h => h.id === id)) {
+                    log('No cached data available for this item', 'error');
+                }
             }
         }
 
@@ -2969,21 +3015,21 @@
                                                     Run on: ${formatDate(item.created_at)}<br>
                                                         Period: ${item.start_date || 'N/A'} to ${item.end_date || 'N/A'}
                                                 </div>
-                                                <div class="metrics-grid">
-                                                    <div class="metric">
-                                                        <div class="metric-label">Volatility Range</div>
-                                                        <div class="metric-value">${sanitizeValue(item.volatility_avg_range, true, 2)}</div>
+                                                <div class="metrics-grid" style="grid-template-columns: repeat(3, 1fr);">
+                                                    <div class="metric" style="background: linear-gradient(135deg, rgba(0,186,124,0.15), rgba(0,186,124,0.05)); border: 1px solid rgba(0,186,124,0.2);">
+                                                        <div class="metric-label">Total Return</div>
+                                                        <div class="metric-value ${item.total_return != null && parseFloat(item.total_return) > 0 ? 'positive' : 'negative'}">${item.total_return != null ? (parseFloat(item.total_return) * 100).toFixed(1) + '%' : 'N/A'}</div>
                                                     </div>
-                                                    <div class="metric">
-                                                        <div class="metric-label">Max Gain</div>
-                                                        <div class="metric-value">${sanitizeValue(item.volatility_max_gain, true, 2)}</div>
+                                                    <div class="metric" style="background: linear-gradient(135deg, rgba(29,155,240,0.15), rgba(29,155,240,0.05)); border: 1px solid rgba(29,155,240,0.2);">
+                                                        <div class="metric-label">Win Rate</div>
+                                                        <div class="metric-value ${(item.win_rate != null && parseFloat(item.win_rate) > 0.5) ? 'positive' : ''}">${item.win_rate != null ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'}</div>
                                                     </div>
-                                                    <div class="metric">
-                                                        <div class="metric-label">Vol Score</div>
-                                                        <div class="metric-value">${sanitizeValue(item.volatility_score, false, 2)}</div>
+                                                    <div class="metric" style="background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(139,92,246,0.05)); border: 1px solid rgba(139,92,246,0.2);">
+                                                        <div class="metric-label">Final Equity</div>
+                                                        <div class="metric-value" style="color: #a78bfa; font-size: 1rem;">${(() => { if (item.final_equity) return '$' + Math.round(item.final_equity).toLocaleString(); const tr = item.total_return != null ? parseFloat(item.total_return) : null; const cap = item.capital || 100000; return tr != null ? '$' + Math.round(cap * (1 + tr)).toLocaleString() : 'N/A'; })()}</div>
                                                     </div>
                                                 </div>
-                                                <div class="params-display">
+                                                <div class="params-display" style="margin-top: 0.75rem;">
                                                     <div class="param">
                                                         <div class="param-label">Buy Trigger</div>
                                                         <div class="param-value">${item.buy_trigger_pct}%</div>
@@ -2993,39 +3039,43 @@
                                                         <div class="param-value">${item.sell_trigger_pct}%</div>
                                                     </div>
                                                     <div class="param">
-                                                        <div class="param-label">Stop Loss</div>
-                                                        <div class="param-value">${item.stop_loss_pct !== undefined ? item.stop_loss_pct + '%' : 'N/A'}</div>
-                                                    </div>
-                                                    <div class="param">
                                                         <div class="param-label">Compound</div>
                                                         <div class="param-value">${item.compound ? 'Yes' : 'No'}</div>
                                                     </div>
                                                 </div>
-                                                <div class="metrics-grid" style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+                                                <div class="metrics-grid" style="margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.75rem; grid-template-columns: repeat(3, 1fr);">
                                                     <div class="metric">
-                                                        <div class="metric-label">${item.optimized_for || 'Score'}</div>
-                                                        <div class="metric-value ${item.score > 0 ? 'positive' : 'negative'}">${sanitizeValue(item.score, false, 2)}</div>
+                                                        <div class="metric-label">Algorithm</div>
+                                                        <div class="metric-value" style="font-size: 0.7rem; color: #ff6b6b;">${(item.algo === 'default' ? 'Dipper' : (item.algo || 'Dipper')).replace('chatgpt_', '').replace('_', ' ').toUpperCase()}</div>
                                                     </div>
-                                                    ${item.optimized_for !== 'win_rate' ? `
                                                     <div class="metric">
-                                                        <div class="metric-label">Win %</div>
-                                                        <div class="metric-value ${(item.win_rate != null && parseFloat(item.win_rate) > 0.5) ? 'positive' : ''}">${item.win_rate != null ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'}</div>
+                                                        <div class="metric-label">Volatility</div>
+                                                        <div class="metric-value" style="font-size: 0.85rem;">${sanitizeValue(item.volatility_avg_range, true, 2)}</div>
                                                     </div>
-                                                    ` : ''}
                                                     <div class="metric">
-                                                        <div class="metric-label">Trials</div>
-                                                        <div class="metric-value">${item.n_trials || item.trials_count || 200}</div>
+                                                        <div class="metric-label">Max Gain</div>
+                                                        <div class="metric-value" style="font-size: 0.85rem;">${sanitizeValue(item.volatility_max_gain, true, 2)}</div>
                                                     </div>
+                                                </div>
+                                                <div class="metrics-grid" style="margin-top: 0.5rem; grid-template-columns: repeat(3, 1fr);">
                                                     <div class="metric">
                                                         <div class="metric-label">Duration</div>
-                                                        <div class="metric-value" style="color: var(--accent);">⏱️ ${item.duration_seconds ? (item.duration_seconds >= 60 ? Math.floor(item.duration_seconds / 60) + 'm ' + Math.round(item.duration_seconds % 60) + 's' : item.duration_seconds + 's') : 'N/A'}</div>
+                                                        <div class="metric-value" style="color: var(--accent); font-size: 0.85rem;">⏱️ ${item.duration_seconds ? (item.duration_seconds >= 60 ? Math.floor(item.duration_seconds / 60) + 'm ' + Math.round(item.duration_seconds % 60) + 's' : item.duration_seconds + 's') : 'N/A'}</div>
+                                                    </div>
+                                                    <div class="metric">
+                                                        <div class="metric-label">Trials</div>
+                                                        <div class="metric-value" style="font-size: 0.85rem;">${item.n_trials || item.trials_count || 200}</div>
                                                     </div>
                                                     <div class="metric">
                                                         <div class="metric-label">Capital</div>
-                                                        <div class="metric-value">$${(item.capital || 0).toLocaleString()}</div>
+                                                        <div class="metric-value" style="font-size: 0.85rem;">$${(item.capital || 0).toLocaleString()}</div>
                                                     </div>
                                                 </div>
-                                                <button class="btn btn-primary" style="margin-top: 1rem; width: 100%;" onclick="applyHistoryConfig(window._currentHistoryItem)">
+                                                <div style="margin-top: 0.75rem; padding: 0.5rem 0.75rem; background: var(--bg-input); border-radius: 6px; font-size: 0.7rem; color: var(--text-secondary);">
+                                                    📅 Optimized: ${item.start_date || 'N/A'} → ${item.end_date || 'N/A'}
+                                                    ${item.backtest_start_date ? '<br>📊 Backtest: ' + item.backtest_start_date + ' → ' + (item.backtest_end_date || 'N/A') : ''}
+                                                </div>
+                                                <button class="btn btn-primary" style="margin-top: 0.75rem; width: 100%;" onclick="applyHistoryConfig(window._currentHistoryItem)">
                                                 Apply These Settings
                                             </button>
                                             `;
@@ -3321,6 +3371,9 @@
         }
 
         function showComplete(data) {
+            // Only count completions from current job
+            if (data.job_id && !activeJobIds.includes(data.job_id)) return;
+
             log(`[${data.symbol}] Optimization complete!`, 'success');
             results[data.symbol] = data.result;
 
@@ -3484,7 +3537,7 @@
         const FULL_STOCK_LIST = 'AAPL,MSFT,GOOGL,GOOG,AMZN,NVDA,META,TSLA,BRK.B,BRK.A,JPM,V,JNJ,UNH,HD,PG,MA,XOM,LLY,AVGO,CVX,MRK,COST,ABBV,PEP,KO,ORCL,CRM,ADBE,AMD,NFLX,TMO,WMT,DIS,ACN,LIN,MCD,CSCO,ABT,TXN,DHR,INTU,CAT,VZ,CMCSA,NEE,BAC,WFC,PM,UPS,RTX,IBM,MS,PFE,INTC,LOW,UNP,AMGN,SPGI,GS,AXP,BLK,ISRG,QCOM,AMAT,DE,GE,NKE,MDT,ADI,LMT,SBUX,PLD,CB,CVS,MMC,TGT,MO,CI,BDX,ZTS,EL,DUK,SO,EQIX,ICE,SHW,CL,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,PAYX,ADP,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,OKTA,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,SNAP,ROKU,SPOT,UBER,LYFT,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,JBLU,ALK,BA,TXT,SPR,GD,NOC,HII,LHX,TDG,HEI,MTZ,PWR,URI,WSM,BBY,GPC,AZO,KMX,AN,SAH,PAG,TSCO,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,PENN,CZR,RSG,AWK,PCAR,ALB,FCX,NEM,GOLD,AA,CLF,STLD,NUE,RS,X,MT,CE,LYB,DOW,EMN,APTV,F,LCID,RIVN,FSR,NIO,XPEV,LI,HMC,TM,POR,OGE,NRG,AES,ET,EPD,MPLX,PAA,KMI,WMB,OKE,ENB,TRP,EXAS,IQV,CTLT,CRL,INCY,ALNY,NBIX,UTHR,BMRN,SRPT,FOLD,PTCT,RARE,BLUE,EDIT,NTLA,CRSP,BEAM,AMED,SEM,HCA,UHS,CNC,MOH,ELV,MDGL,AXSM,GH,PACB,TXG,VCYT,NTRA,CDNA,MYGN,BTX,OMCL,CERS,TRMB,GRMN,IRDM,VSAT,ASTS,PLTR,SOUN,AI,BBAI,UPST,AFRM,SOFI,HOOD,COIN,MSTR,RIOT,MARA,CLSK,ONTO,FORM,ASML,TSM,UMC,SMCI,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,CSIQ,FSLR,ARRY,NEP,BEP,BEPC,PLUG,BLDP,FCEL,CHPT,EVGO,QS,FREY,ALGM,ON,STM,NXPI,INFY,WIT,CTSH,EPAM,DXC,TCS,SAP,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,WK,BL,SMAR,PSTG,NTNX,VMW,LOGI,SONY,EA,TTWO,MTCH,BMBL,SPCE,RKLB,ASTR,MAXR,PL,JOBY,ACHR,EH'.split(',');
 
         // CAP Stock List - Large Cap Focus (blue chips + growth)
-        const CAP_STOCK_LIST = 'AAPL,MSFT,NVDA,GOOGL,GOOG,AMZN,META,BRK.A,BRK.B,LLY,AVGO,TSLA,JPM,V,UNH,XOM,MA,JNJ,HD,COST,PG,ABBV,MRK,ORCL,CRM,KO,PEP,ADBE,WMT,NFLX,AMD,LIN,CSCO,ACN,MCD,TMO,INTU,DIS,NKE,ABT,CVX,TXN,AMGN,IBM,PM,UPS,LOW,NEE,RTX,MS,GS,SPGI,BLK,ISRG,QCOM,CAT,DE,SBUX,EL,PLD,MDT,AMAT,ADI,LMT,GE,AXP,CB,MMC,CI,MO,BDX,ZTS,ICE,DUK,SO,EQIX,SHW,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,ADP,PAYX,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,ROKU,SPOT,UBER,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,ALK,BA,GD,NOC,LHX,TDG,URI,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,RSG,AWK,PCAR,CUMM,ALB,FCX,NEM,AA,STLD,NUE,CE,LYB,DOW,EMN,APTV,F,ROK,KEYS,AME,IR,XYL,TT,WAB,EFX,MTB,HBAN,RF,TFC,CFG,STT,NTRS,BK,AMP,IVZ,DFS,SYF,COIN,MSTR,RIOT,MARA,CHTR,CMCSA,VZ,T,TMUS,ZS,OKTA,WDAY,NOW,SQ,PYPL,INTC,TSM,ASML,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,FSLR,PLUG,BLDP,CHPT,QS,ON,STM,NXPI,INFY,CTSH,EPAM,DXC,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,SMAR,PSTG,NTNX,VMW,LOGI,EA,TTWO,MTCH,BMBL,PLTR,AI,UPST,AFRM,SOFI,HOOD,CLS,ONTO,FORM,SMCI,GRMN,TRMB,IRDM,VSAT,ASTS,RKLB,JOBY,ACHR,PL,MAXR,SPCE'.split(',');
+        const CAP_STOCK_LIST = [...new Set('AAPL,MSFT,NVDA,GOOGL,GOOG,AMZN,META,BRK.A,BRK.B,LLY,AVGO,TSLA,JPM,V,UNH,XOM,MA,JNJ,HD,COST,PG,ABBV,MRK,ORCL,CRM,KO,PEP,ADBE,WMT,NFLX,AMD,LIN,CSCO,ACN,MCD,TMO,INTU,DIS,NKE,ABT,CVX,TXN,AMGN,IBM,PM,UPS,LOW,NEE,RTX,MS,GS,SPGI,BLK,ISRG,QCOM,CAT,DE,SBUX,EL,PLD,MDT,AMAT,ADI,LMT,GE,AXP,CB,MMC,CI,MO,BDX,ZTS,ICE,DUK,SO,EQIX,SHW,ITW,PNC,APD,GM,FDX,HUM,AON,EMR,ECL,ETN,EW,ROP,TRV,VRTX,PSA,NSC,PH,SLB,MCO,ORLY,GILD,REGN,BIIB,MRNA,KLAC,LRCX,CDNS,SNPS,FTNT,ADP,PAYX,CTAS,ROST,ODFL,EXC,XEL,WM,CSX,KMB,COF,MSI,ILMN,DXCM,IDXX,FAST,KR,PPG,ALL,PRU,AIG,STZ,PEG,WEC,ED,ES,HPQ,DELL,HPE,ANET,NET,DDOG,SNOW,CRWD,ZS,PANW,TEAM,HUBS,SHOP,EBAY,ETSY,PINS,ROKU,SPOT,UBER,DASH,ABNB,BKNG,EXPE,MAR,HLT,RCL,CCL,NCLH,UAL,DAL,AAL,LUV,ALK,BA,GD,NOC,LHX,TDG,URI,ULTA,YUM,DPZ,CMG,MGM,LVS,WYNN,RSG,AWK,PCAR,CUMM,ALB,FCX,NEM,AA,STLD,NUE,CE,LYB,DOW,EMN,APTV,F,ROK,KEYS,AME,IR,XYL,TT,WAB,EFX,MTB,HBAN,RF,TFC,CFG,STT,NTRS,BK,AMP,IVZ,DFS,SYF,COIN,MSTR,RIOT,MARA,CHTR,CMCSA,VZ,T,TMUS,OKTA,WDAY,NOW,SQ,PYPL,INTC,TSM,ASML,MPWR,MCHP,SWKS,QRVO,ENTG,OLED,IPGP,SEDG,ENPH,FSLR,PLUG,BLDP,CHPT,QS,ON,STM,NXPI,INFY,CTSH,EPAM,DXC,ADSK,ANSS,PTC,SSNC,TYL,MANH,APPF,SMAR,PSTG,NTNX,VMW,LOGI,EA,TTWO,MTCH,BMBL,PLTR,AI,UPST,AFRM,SOFI,HOOD,CLS,ONTO,FORM,SMCI,GRMN,TRMB,IRDM,VSAT,ASTS,RKLB,JOBY,ACHR,PL,MAXR,SPCE'.split(','))];
 
         // Fetch stocks from Widesurf API via backend proxy (avoids CORS issues)
         async function fetchWidesurfStocks(keyword) {
