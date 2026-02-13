@@ -17,6 +17,7 @@ try:
 except ImportError:
     from backports.zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures
 import logging
 import numpy as np
 
@@ -607,6 +608,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Executors ──────────────────────────────────────────────────────────────────
+# Default executor: large pool for I/O-bound tasks (API fetches, DB writes).
+# Python's default is min(32, cpu+4) = 32 threads — way too small for 30+
+# concurrent workers each doing multiple blocking calls.
+_IO_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=200, thread_name_prefix="io"
+)
+
+# Dedicated single-thread executor for GPU work.
+# CuPy/CUDA is not thread-safe across multiple threads — serialise all GPU
+# calls through one thread so the GPU stays busy without context-switching.
+_GPU_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="gpu"
+)
+
 # Import and register routers
 from routers.api_tester import router as api_tester_router
 from routers.history import router as history_router
@@ -614,6 +630,12 @@ from routers.ai100 import router as ai100_router
 # App startup
 @app.on_event("startup")
 async def startup_event():
+    # Replace the default 32-thread executor with a large I/O pool so that
+    # 30+ concurrent workers don't starve each other waiting for threads.
+    loop = asyncio.get_event_loop()
+    loop.set_default_executor(_IO_EXECUTOR)
+    logger.info(f"Default executor set to IO pool (200 threads)")
+
     init_db_pool()
     ensure_tables()
     ensure_keyword_configs_table()
@@ -2114,7 +2136,7 @@ async def optimize_stock(
                 
                 loop = asyncio.get_event_loop()
                 gpu_result = await loop.run_in_executor(
-                    None,
+                    _GPU_EXECUTOR,
                     run_chatgpt_9am_optimization,
                     bars_with_10am,
                     config.capital,
@@ -2213,7 +2235,7 @@ async def optimize_stock(
                 
                 loop = asyncio.get_event_loop()
                 gpu_result = await loop.run_in_executor(
-                    None,
+                    _GPU_EXECUTOR,
                     run_chatgpt_stoploss_optimization,
                     bars_with_10am,
                     config.capital,
@@ -2333,7 +2355,7 @@ async def optimize_stock(
                 
                 loop = asyncio.get_event_loop()
                 gpu_result = await loop.run_in_executor(
-                    None,
+                    _GPU_EXECUTOR,
                     run_chatgpt_9am_optimization,
                     bars_with_10am,
                     config.capital,
@@ -2553,7 +2575,7 @@ async def optimize_stock(
                         "message": f"🚀 Initializing RTX 3080 GPU Backtester..."
                     })
                     gpu_result = await loop.run_in_executor(
-                        None,
+                        _GPU_EXECUTOR,
                         run_chatgpt_vwap_optimization,
                         bars_with_vwap,
                         config.capital,
@@ -2572,7 +2594,7 @@ async def optimize_stock(
                         "message": f"🦀 Using Rust Multi-threaded Engine (32 cores)..."
                     })
                     gpu_result = await loop.run_in_executor(
-                        None,
+                        _IO_EXECUTOR,
                         run_rust_vwap_optimization,
                         bars_with_vwap,
                         config.capital,
@@ -2620,7 +2642,7 @@ async def optimize_stock(
                 })
                 
                 gpu_result = await loop.run_in_executor(
-                    None, 
+                    _GPU_EXECUTOR, 
                     run_gpu_optimization,
                     bars,
                     config.capital,
@@ -3091,10 +3113,16 @@ async def start_optimization(request: OptimizationRequest):
         async def worker(worker_id, work_queue, engine_type='cpu'):
             nonlocal completed_count
             logger.info(f"Worker {worker_id} ({engine_type}) started")
-            while not work_queue.empty():
+            while True:
                 if is_job_cancelled(job_id): break
+                # Use get() with timeout instead of empty() check to avoid
+                # race condition where queue appears empty mid-flight
                 try:
-                    symbol = await work_queue.get()
+                    symbol = await asyncio.wait_for(work_queue.get(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    # No more items — exit gracefully
+                    break
+                try:
                     start_time = time.time()
                     logger.info(f"Worker {worker_id} ({engine_type}) starting {symbol}")
                     res = await optimize_stock(symbol, request, job_id, engine_override=engine_type)
@@ -3106,10 +3134,10 @@ async def start_optimization(request: OptimizationRequest):
                         logger.info(f"Worker {worker_id} ({engine_type}) finished {symbol} in {duration:.2f}s")
                     else:
                         logger.warning(f"Worker {worker_id} ({engine_type}) failed {symbol} in {duration:.2f}s")
-                    
+
                     completed_count += 1
                     work_queue.task_done()
-                    
+
                     # Periodic progress updates
                     if completed_count % 5 == 0 or completed_count == total_count:
                         await broadcast_message({
@@ -3122,7 +3150,7 @@ async def start_optimization(request: OptimizationRequest):
                         logger.info(f"Job {job_id} progress: {completed_count}/{total_count} ({engine_type} worker {worker_id} finished {symbol})")
                 except Exception as e:
                     logger.error(f"Worker {worker_id} error: {e}")
-                    if not work_queue.empty(): work_queue.task_done()
+                    work_queue.task_done()
 
         workers = []
 
@@ -3152,8 +3180,8 @@ async def start_optimization(request: OptimizationRequest):
             # 1 GPU Worker processing its dedicated queue
             workers.append(asyncio.create_task(worker("GPU-1", gpu_queue, engine_type='gpu')))
 
-            # 30 CPU Workers processing CPU queue
-            for i in range(30):
+            # 50 CPU Workers processing CPU queue (more workers = better I/O overlap)
+            for i in range(50):
                 workers.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
         else:
             # CPU-only mode: single queue
@@ -3161,8 +3189,8 @@ async def start_optimization(request: OptimizationRequest):
             for s in request.symbols:
                 cpu_queue.put_nowait(s)
 
-            # 30 CPU Workers
-            for i in range(30):
+            # 50 CPU Workers
+            for i in range(50):
                 workers.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
 
         # Wait for all workers to finish their work in the queues
