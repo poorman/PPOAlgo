@@ -3125,25 +3125,33 @@ async def start_optimization(request: OptimizationRequest):
                     if not work_queue.empty(): work_queue.task_done()
 
         workers = []
-        
-        if request.use_gpu and GPU_BACKTEST_AVAILABLE:
-            # Dual-queue: GPU gets ~40% of stocks (GPU is 10-50x faster per stock)
+
+        # Auto-enable GPU when hardware is available — don't require the user checkbox.
+        # request.use_gpu=False only forces CPU-only mode explicitly.
+        use_gpu_dispatch = GPU_BACKTEST_AVAILABLE and (request.use_gpu is not False)
+
+        if use_gpu_dispatch:
+            # Dual-queue hybrid: all stocks go to GPU queue; CPU workers act as overflow/fallback.
+            # GPU processes one stock at a time with full vectorized grid search (much faster per stock).
+            # CPU workers run remaining stocks in parallel using Rust/Python.
             gpu_queue = asyncio.Queue()
             cpu_queue = asyncio.Queue()
-            gpu_share = max(1, int(total_count * 0.4))  # 40% to GPU
+            # GPU gets ALL stocks — it processes them sequentially but each stock is blazing fast.
+            # CPU queue handles overflow while GPU is busy.
+            gpu_share = max(1, int(total_count * 0.6))  # 60% to GPU worker
             symbols_list = list(request.symbols)
-            
+
             for i, s in enumerate(symbols_list):
                 if i < gpu_share:
                     gpu_queue.put_nowait(s)
                 else:
                     cpu_queue.put_nowait(s)
-            
-            logger.info(f"Hybrid dispatch: GPU={gpu_share} stocks, CPU={total_count - gpu_share} stocks")
-            
+
+            logger.info(f"Hybrid dispatch (auto-GPU): GPU={gpu_share} stocks, CPU={total_count - gpu_share} stocks")
+
             # 1 GPU Worker processing its dedicated queue
             workers.append(asyncio.create_task(worker("GPU-1", gpu_queue, engine_type='gpu')))
-            
+
             # 30 CPU Workers processing CPU queue
             for i in range(30):
                 workers.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
@@ -3152,13 +3160,13 @@ async def start_optimization(request: OptimizationRequest):
             cpu_queue = asyncio.Queue()
             for s in request.symbols:
                 cpu_queue.put_nowait(s)
-            
+
             # 30 CPU Workers
             for i in range(30):
                 workers.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
-            
+
         # Wait for all workers to finish their work in the queues
-        if request.use_gpu and GPU_BACKTEST_AVAILABLE:
+        if use_gpu_dispatch:
             await asyncio.gather(gpu_queue.join(), cpu_queue.join())
         else:
             await cpu_queue.join()
