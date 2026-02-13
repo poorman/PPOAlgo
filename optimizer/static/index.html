@@ -683,6 +683,25 @@
             cursor: pointer;
             flex: 1;
             transition: all 0.2s;
+            position: relative;
+        }
+        .sort-btn[title]:hover::after {
+            content: attr(title);
+            position: absolute;
+            bottom: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1a1f2e;
+            color: #e7e9ea;
+            border: 1px solid #2f3336;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 0.75rem;
+            white-space: normal;
+            text-align: center;
+            z-index: 1000;
+            pointer-events: none;
+            max-width: 260px;
         }
 
         .sort-btn:hover {
@@ -1142,10 +1161,11 @@
             <div class="form-group" id="timing-approach-group"
                 style="display: none; margin-left: 1rem; border-left: 2px solid #444; padding-left: 0.75rem;">
                 <label for="timing-approach" style="margin-bottom: 0.5rem; font-size: 0.9em;">Timing Approach:</label>
-                <select id="timing-approach" style="width: 100%; padding: 0.25rem;">
+                <select id="timing-approach" style="width: 100%; padding: 0.25rem;" onchange="updateTimingDescription()">
                     <option value="sequential">Sequential (Faster) - Find timing after triggers</option>
                     <option value="joint">Joint (Better) - Optimize all parameters together</option>
                 </select>
+                <div id="timing-description" style="margin-top: 0.5rem; padding: 8px 10px; background: rgba(29,155,240,0.08); border-left: 3px solid var(--accent); border-radius: 4px; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.5;"></div>
                 <div style="display: flex; align-items: center; gap: 0.4rem; margin-top: 0.25rem;">
                     <small style="color: #666; font-size: 0.7em;">
                         Sequential: ~30 sec faster | Joint: potentially better results
@@ -1658,13 +1678,13 @@
             <input type="text" id="history-search" class="search-input" placeholder="🔍 Search symbol..."
                 oninput="filterHistory()">
             <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; margin-bottom: 0.75rem;">
-                <button class="sort-btn active" id="sort-date" onclick="sortHistory('date')">📅 Date</button>
-                <button class="sort-btn" id="sort-sharpe" onclick="sortHistory('sharpe')">📈 Sharpe</button>
-                <button class="sort-btn" id="sort-max" onclick="sortHistory('max')">🚀 Max</button>
-                <button class="sort-btn" id="sort-win" onclick="sortHistory('win')">🎯 Win</button>
-                <button class="sort-btn" id="sort-fin" onclick="sortHistory('fin')">💰 Fin</button>
-                <button class="sort-btn" id="sort-amnt" onclick="sortHistory('amnt')">📊 Amnt</button>
-                <button class="sort-btn" id="sort-win2" onclick="sortHistory('win2')">🏆 Win2</button>
+                <button class="sort-btn active" id="sort-date" onclick="sortHistory('date')" title="Sort by most recently optimized">📅 Date</button>
+                <button class="sort-btn" id="sort-sharpe" onclick="sortHistory('sharpe')" title="Sort by Sharpe Ratio — risk-adjusted return (higher = better risk/reward)">📈 Sharpe</button>
+                <button class="sort-btn" id="sort-max" onclick="sortHistory('max')" title="Sort by Maximum Gain — highest single-day % gain found in backtest">🚀 Max</button>
+                <button class="sort-btn" id="sort-win" onclick="sortHistory('win')" title="Sort by Win Rate — % of trades that were profitable">🎯 Win</button>
+                <button class="sort-btn" id="sort-fin" onclick="sortHistory('fin')" title="Sort by Final Portfolio Value — ending capital after backtest">💰 Fin</button>
+                <button class="sort-btn" id="sort-amnt" onclick="sortHistory('amnt')" title="Sort by Trade Count — number of winning trades executed">📊 Amnt</button>
+                <button class="sort-btn" id="sort-win2" onclick="sortHistory('win2')" title="Sort by Win Rate v2 — calculated directly from trade log">🏆 Win2</button>
             </div>
             <div class="filter-row">
                 <label class="filter-checkbox">
@@ -3215,24 +3235,30 @@
         }
 
         function showWarning(data) {
-            log(`[${data.symbol}] ${data.message}`, 'warning');
-
-            // Store warning for display in results
             if (!window.dataRangeWarnings) window.dataRangeWarnings = {};
             window.dataRangeWarnings[data.symbol] = data.message;
 
-            // Show warning in the card if it exists
             const card = document.getElementById(`card-${data.symbol}`);
-            if (card) {
-                let warningEl = card.querySelector('.data-range-warning');
-                if (!warningEl) {
-                    warningEl = document.createElement('div');
-                    warningEl.className = 'data-range-warning';
-                    warningEl.style.cssText = 'background: rgba(255, 173, 31, 0.15); border: 1px solid var(--warning); border-radius: 6px; padding: 8px; margin: 8px 0; font-size: 0.75rem; color: var(--warning);';
-                    card.insertBefore(warningEl, card.querySelector('.params-display'));
-                }
-                warningEl.innerHTML = data.message;
+            if (!card) return;
+
+            // Extract actual start date from message like "Data only available from 2024-01-21..."
+            const dateMatch = data.message.match(/from (\d{4}-\d{2}-\d{2})/);
+            const actualStart = dateMatch ? dateMatch[1] : null;
+
+            let warningEl = card.querySelector('.data-range-warning');
+            if (!warningEl) {
+                warningEl = document.createElement('div');
+                warningEl.className = 'data-range-warning';
+                warningEl.style.cssText = 'background: rgba(29,155,240,0.08); border-left: 3px solid var(--accent); border-radius: 4px; padding: 5px 10px; margin: 6px 0; font-size: 0.72rem; color: var(--text-secondary); display: flex; align-items: center; gap: 8px;';
+                const paramsDisplay = card.querySelector('.params-display');
+                if (paramsDisplay) card.insertBefore(warningEl, paramsDisplay);
+                else card.appendChild(warningEl);
             }
+
+            const autoFixBtn = actualStart
+                ? `<button onclick="document.getElementById('start-date').value='${actualStart}'" style="background:transparent;border:1px solid var(--accent);color:var(--accent);border-radius:3px;padding:1px 6px;font-size:0.68rem;cursor:pointer;white-space:nowrap;">Auto-fix</button>`
+                : '';
+            warningEl.innerHTML = `<span>📅 Data starts ${actualStart || 'later than requested'}</span>${autoFixBtn}`;
         }
 
         function updateStatus(data) {
@@ -3404,7 +3430,6 @@
                                             <div class="param"><div class="param-label">Buy Trigger</div><div class="param-value">${r.best_params.buy_trigger_pct}%</div></div>
                                             <div class="param"><div class="param-label">Sell Trigger</div><div class="param-value">${r.best_params.sell_trigger_pct}%</div></div>
                                             <div class="param"><div class="param-label">Compound</div><div class="param-value">${r.best_params.compound ? 'Yes' : 'No'}</div></div>
-                                            ${(isVWAP || r.best_params.stop_loss_pct) ? `<div class="param"><div class="param-label">Stop Loss</div><div class="param-value" style="color: ${r.best_params.stop_loss_pct ? 'var(--danger)' : '#22c55e'};">${r.best_params.stop_loss_pct ? r.best_params.stop_loss_pct + '%' : 'None'}</div></div>` : ''}
                                             `;
                 }
 
@@ -3713,6 +3738,22 @@
 
         // Add event listener for smart timing checkbox
         document.getElementById('smart-timing').addEventListener('change', toggleTimingApproach);
+
+        const TIMING_DESCRIPTIONS = {
+            sequential: "⚡ <strong>Sequential (Faster)</strong><br>First finds the best buy/sell trigger %, then separately optimizes the ideal time of day to enter. About 30 seconds faster overall. Best for quick scans.",
+            joint: "🎯 <strong>Joint (Better Results)</strong><br>Optimizes buy trigger, sell trigger, AND entry time all together simultaneously. Explores more combinations — may find better parameters but takes longer."
+        };
+
+        function updateTimingDescription() {
+            const val = document.getElementById('timing-approach').value;
+            const el = document.getElementById('timing-description');
+            if (el) el.innerHTML = TIMING_DESCRIPTIONS[val] || '';
+        }
+
+        // Call on load to show default description when timing panel is visible
+        document.addEventListener('DOMContentLoaded', function() {
+            updateTimingDescription();
+        });
 
         async function loadApiKeys() {
             try {
