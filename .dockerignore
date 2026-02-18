@@ -1,0 +1,13 @@
+.git
+**/target/
+**/venv/
+**/node_modules/
+**/__pycache__/
+*.log
+data/
+images/
+optimizer/results/
+optimizer/target/
+optimizer/venv/
+backend/venv/
+frontend/node_modules/

@@ -6,123 +6,63 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PPOAlgo Prop Desk</title>
   <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
 
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="title">PPOAlgo – Prop Firm Console</div>
-      <div class="subtitle">Interactive, simulated GUI</div>
+      <div class="title">PPOAlgo - VWAP Momentum Backtester</div>
+      <div class="subtitle">Adaptive VWAP breakout strategy with 4-condition entry signal</div>
     </div>
     <div class="actions">
-      <button class="ghost" id="btn-load-data">Load historical data</button>
-      <button class="ghost" id="btn-focus-model">Select model</button>
-      <button class="primary" id="btn-run-backtest">Run backtest</button>
+      <button class="primary" id="btn-run-backtest">Run Backtest</button>
       <a href="paper.html" class="paper-trade" id="btn-go-paper"
-        style="text-decoration: none; display: inline-flex; align-items: center;">🚀 Go Paper</a>
-      <button class="ghost" id="btn-toggle-logs">Show logs</button>
-      <button class="secondary" id="btn-export">Export results</button>
+        style="text-decoration: none; display: inline-flex; align-items: center;">Go Paper</a>
+      <button class="ghost" id="btn-toggle-logs">Hide logs</button>
+      <button class="secondary" id="btn-export">Export CSV</button>
     </div>
   </header>
 
   <main class="main-grid">
     <aside class="panel narrow">
       <div class="panel-header">
-        <h2>Model & Config</h2>
-        <p class="hint">Choose model, toggles, and checkpoints.</p>
+        <h2>VWAP Config</h2>
+        <p class="hint">Adaptive VWAP breakout with slope, stretch, and momentum filters.</p>
       </div>
+
+      <div class="desc-box" id="algo-desc">
+        VWAP Momentum: Enters at configured buy time (ET) when price is above VWAP, VWAP slope is positive,
+        stretch is within bounds (alpha=0.50), momentum exceeds threshold (gamma=0.25), and price
+        is above buy trigger %. Exits at take-profit target, end of day, or holds overnight.
+      </div>
+
+      <div class="panel-subheader">Strategy settings</div>
       <div class="form-grid">
         <label>
-          Model
-          <select id="model-select">
-            <option value="ppo">PPO</option>
-            <option value="lstm">LSTM</option>
-            <option value="baseline">Baseline</option>
-            <option value="momentum">Momentum</option>
-          </select>
-        </label>
-        <div class="desc-controls">
-          <button class="secondary" id="toggle-desc">Hide description</button>
-        </div>
-        <div id="algo-desc" class="desc-box"></div>
-        <label>
-          PPO policy
-          <select id="ppo-policy">
-            <option value="mlp">MLP</option>
-            <option value="cnn">CNN</option>
-            <option value="transformer">Transformer</option>
-          </select>
+          Buy trigger % (min % above prev close)
+          <input id="buy-trigger" type="number" step="0.1" min="0" value="0.1" />
         </label>
         <label>
-          PPO checkpoint
-          <input id="ppo-checkpoint" type="text" placeholder="checkpoint path or tag" />
+          Buy time (ET)
+          <input id="buy-time" type="time" value="10:00" />
+        </label>
+        <label>
+          Sell trigger % (take-profit)
+          <input id="sell-trigger" type="number" step="0.1" min="0.1" value="5" />
+        </label>
+        <label>
+          Buy amount ($)
+          <input id="buy-amount" type="number" step="1000" min="0" value="100000" />
         </label>
         <label class="toggle-row">
-          <input type="checkbox" id="toggle-lstm" checked />
-          <span>LSTM predictor</span>
+          <input type="checkbox" id="compound" checked />
+          <span>Compound (reinvest proceeds)</span>
         </label>
         <label class="toggle-row">
-          <input type="checkbox" id="toggle-sentiment" />
-          <span>Sentiment</span>
+          <input type="checkbox" id="sell-eod" checked />
+          <span>Sell at market close if target not hit</span>
         </label>
-      </div>
-
-      <div id="training-generic">
-        <div class="panel-subheader">Training settings</div>
-        <div class="slider">
-          <div class="slider-row">
-            <label for="steps-range">Number of steps</label>
-            <span id="steps-value">200k</span>
-          </div>
-          <input id="steps-range" type="range" min="10000" max="1000000" step="10000" value="200000" />
-        </div>
-        <div class="slider">
-          <div class="slider-row">
-            <label for="gamma-range">Gamma</label>
-            <span id="gamma-value">0.99</span>
-          </div>
-          <input id="gamma-range" type="range" min="0.8" max="0.999" step="0.001" value="0.99" />
-        </div>
-        <div class="slider">
-          <div class="slider-row">
-            <label for="clip-range">Clip range</label>
-            <span id="clip-value">0.20</span>
-          </div>
-          <input id="clip-range" type="range" min="0.05" max="0.4" step="0.01" value="0.2" />
-        </div>
-        <div class="slider">
-          <div class="slider-row">
-            <label for="lr-range">Learning rate</label>
-            <span id="lr-value">0.0003</span>
-          </div>
-          <input id="lr-range" type="range" min="0.00005" max="0.005" step="0.00005" value="0.0003" />
-        </div>
-      </div>
-
-      <div id="training-momentum" class="hidden">
-        <div class="panel-subheader">Momentum settings</div>
-        <div class="form-grid">
-          <label>
-            Buy trigger %
-            <input id="mom-buy-trigger" type="number" step="0.1" min="0" value="5" />
-          </label>
-          <label>
-            Buy time (CDT)
-            <input id="mom-buy-time" type="time" value="09:00" />
-          </label>
-          <label>
-            Sell trigger %
-            <input id="mom-sell-trigger" type="number" step="0.1" min="0" value="9" />
-          </label>
-          <label>
-            Buy amount ($)
-            <input id="mom-buy-amount" type="number" step="100" min="0" value="1000" />
-          </label>
-          <label class="toggle-row">
-            <input type="checkbox" id="mom-compound" />
-            <span>Compound (reinvest proceeds)</span>
-          </label>
-        </div>
       </div>
 
       <div class="panel-subheader">Backtest settings</div>
@@ -133,86 +73,65 @@
         </label>
         <label>
           Start date
-          <input id="start-date" type="date" value="2020-01-01" />
+          <input id="start-date" type="date" />
         </label>
         <label>
           End date
-          <input id="end-date" type="date" value="2020-12-31" />
+          <input id="end-date" type="date" />
         </label>
         <label>
-          Initial capital
+          Initial capital ($)
           <input id="capital" type="number" value="100000" />
         </label>
-        <label>
-          Trading fees (bps)
-          <input id="fees" type="number" step="0.01" value="5" />
-        </label>
-        <label>
-          Slippage %
-          <input id="slippage" type="number" step="0.01" value="0.05" />
-        </label>
       </div>
-      <button class="secondary" id="btn-apply-settings">Apply settings</button>
-      <span id="config-status" class="status-pill muted">Not saved</span>
+      <button class="primary" id="btn-run-backtest-side" style="width:100%; margin-top: 12px;">Run Backtest</button>
+      <span id="config-status" class="status-pill muted">Ready</span>
     </aside>
 
     <section class="panel center">
       <div class="panel-header">
         <h2>Charts</h2>
-        <p class="hint">Price, PPO decisions, position sizing, and portfolio curve.</p>
+        <p class="hint">Price action with VWAP entries, equity curve, and trade returns.</p>
       </div>
       <div class="chart-card">
         <div class="chart-title">
-          <span>Price chart + PPO decisions</span>
+          <span>Price + VWAP Entries</span>
           <div class="legend">
             <span class="dot buy"></span> Buy
-            <span class="dot sell"></span> Sell
-            <span class="dot reduce"></span> Reduce
-            <span class="dot flat"></span> Flat
+            <span class="dot sell"></span> Sell (TP)
+            <span class="dot reduce"></span> Sell (EOD)
           </div>
         </div>
-        <div class="chart" id="price-chart"></div>
-        <div class="chart-dates">
-          <span id="chart-start"></span>
-          <span id="chart-price-start" class="chart-price"></span>
-          <span id="chart-price-end" class="chart-price"></span>
-          <span id="chart-end"></span>
+        <div class="chart-container">
+          <canvas id="price-chart"></canvas>
         </div>
-      </div>
-
-      <div class="chart-card">
-        <div class="chart-title">
-          <span>Position size (long/short %)</span>
-        </div>
-        <div class="chart" id="position-chart"></div>
       </div>
 
       <div class="chart-grid">
         <div class="chart-card">
-          <div class="chart-title">
-            <span>Portfolio value</span>
+          <div class="chart-title"><span>Portfolio Value</span></div>
+          <div class="chart-container chart-small">
+            <canvas id="portfolio-chart"></canvas>
           </div>
-          <div class="chart" id="portfolio-chart"></div>
         </div>
         <div class="chart-card">
-          <div class="chart-title">
-            <span>Drawdown & returns</span>
+          <div class="chart-title"><span>Trade Returns</span></div>
+          <div class="chart-container chart-small">
+            <canvas id="returns-chart"></canvas>
           </div>
-          <div class="chart" id="dd-chart"></div>
         </div>
       </div>
     </section>
 
     <aside class="panel narrow">
       <div class="panel-header">
-        <h2>Stats & Metrics</h2>
-        <p class="hint">Performance and stability signals.</p>
+        <h2>Performance</h2>
+        <p class="hint">Backtest results and risk metrics.</p>
       </div>
       <div class="metric-section">
         <button class="btn-trade-it" id="btn-trade-it" onclick="addToPaperTrading()">
-          🚀 Trade It
+          Trade It
         </button>
-        <div class="metric-title">Performance</div>
         <div class="metric-grid">
           <div class="metric"><span>Total return</span><strong id="m-return">--</strong></div>
           <div class="metric"><span>Sharpe</span><strong id="m-sharpe">--</strong></div>
@@ -220,17 +139,19 @@
           <div class="metric"><span>Max DD</span><strong id="m-dd">--</strong></div>
           <div class="metric"><span>Win rate</span><strong id="m-winrate">--</strong></div>
           <div class="metric"><span>Avg win/loss</span><strong id="m-avg">--</strong></div>
-          <div class="metric"><span>Commission</span><strong id="m-comm">--</strong></div>
-          <div class="metric"><span>Slippage</span><strong id="m-slip">--</strong></div>
+          <div class="metric"><span>Total trades</span><strong id="m-trades">--</strong></div>
+          <div class="metric"><span>Final equity</span><strong id="m-equity">--</strong></div>
         </div>
       </div>
       <div class="metric-section">
-        <div class="metric-title">Stability</div>
+        <div class="metric-title">VWAP Signal Stats</div>
         <div class="metric-grid">
-          <div class="metric"><span>Action entropy</span><strong id="m-entropy">--</strong></div>
-          <div class="metric"><span>Value loss</span><strong id="m-vloss">--</strong></div>
-          <div class="metric"><span>Policy loss</span><strong id="m-ploss">--</strong></div>
-          <div class="metric"><span>Clip fraction</span><strong id="m-clip">--</strong></div>
+          <div class="metric"><span>Days analyzed</span><strong id="m-days">--</strong></div>
+          <div class="metric"><span>Entries taken</span><strong id="m-entries">--</strong></div>
+          <div class="metric"><span>Skipped: below VWAP</span><strong id="m-skip-vwap">--</strong></div>
+          <div class="metric"><span>Skipped: slope</span><strong id="m-skip-slope">--</strong></div>
+          <div class="metric"><span>Skipped: stretch</span><strong id="m-skip-stretch">--</strong></div>
+          <div class="metric"><span>Skipped: momentum</span><strong id="m-skip-momentum">--</strong></div>
           <div class="metric status"><span>Status</span><strong id="m-status">--</strong></div>
         </div>
       </div>
@@ -239,8 +160,8 @@
 
   <section class="panel full" id="logs-panel">
     <div class="panel-header">
-      <h2>Trade log</h2>
-      <p class="hint">Chronological trades; export for review.</p>
+      <h2>Trade Log</h2>
+      <p class="hint">Detailed per-day analysis with VWAP entry conditions and skip reasons.</p>
     </div>
     <div class="log-controls">
       <button class="secondary" id="btn-clear-trades">Clear table</button>
@@ -254,18 +175,18 @@
       <table class="trade-table">
         <thead>
           <tr>
-            <th data-sort-key="timestamp">Timestamp</th>
+            <th data-sort-key="date">Date</th>
             <th data-sort-key="open">Open</th>
-            <th data-sort-key="price9am">9:00 price</th>
-            <th data-sort-key="price">Price</th>
-            <th data-sort-key="pctChange">% from prev close</th>
-            <th data-sort-key="notional">Purchased/Sold ($)</th>
+            <th data-sort-key="price_10am">Buy Time $</th>
+            <th data-sort-key="vwap">VWAP</th>
+            <th data-sort-key="high">High</th>
+            <th data-sort-key="close">Close</th>
             <th data-sort-key="action">Action</th>
-            <th data-sort-key="position">Position size</th>
-            <th data-sort-key="reward">Trade P/L %</th>
-            <th data-sort-key="unreal">Unrealized PnL</th>
-            <th data-sort-key="realized">Realized PnL</th>
-            <th data-sort-key="wallet">Wallet ($)</th>
+            <th data-sort-key="skip_reason">Reason</th>
+            <th data-sort-key="buy_price">Entry</th>
+            <th data-sort-key="sell_price">Exit</th>
+            <th data-sort-key="profit">P/L ($)</th>
+            <th data-sort-key="equity">Equity</th>
           </tr>
         </thead>
         <tbody id="trade-body"></tbody>
@@ -276,10 +197,8 @@
   </section>
 
   <footer class="footer">
-    All interactions are simulated in-browser. Wire up real APIs to connect the PPO/LSTM entrypoints.
+    VWAP algorithm matches optimizer Rust engine (alpha=0.50, gamma=0.25). Data source: Alpaca Markets.
   </footer>
-
-  <!-- Paper Trading is now on a separate page: paper.html -->
 
   <script src="app.js"></script>
 </body>

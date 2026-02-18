@@ -112,30 +112,48 @@ def get_prices(
 
     # Use Alpaca as primary data source (more reliable for historical data)
     if ALPACA_KEY and ALPACA_SECRET:
-        params = {
-            "start": start_dt.isoformat() + "Z",
-            "end": end_dt.isoformat() + "Z",
-            "timeframe": timeframe,
-            "limit": limit,
-            "adjustment": "all",
-        }
-
         url = f"{ALPACA_DATA_URL}/v2/stocks/{symbol}/bars"
         headers = {
             "APCA-API-KEY-ID": ALPACA_KEY,
             "APCA-API-SECRET-KEY": ALPACA_SECRET,
         }
+
+        # Paginate through ALL results using next_page_token
+        # Alpaca returns max 10000 bars per page; for 1Min data we need all pages
+        all_bars = []
+        page_token = None
+        max_pages = 100  # Safety limit to prevent infinite loops
+
         try:
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.get(url, params=params, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
+            with httpx.Client(timeout=60.0) as client:
+                for page in range(max_pages):
+                    params = {
+                        "start": start_dt.isoformat() + "Z",
+                        "end": end_dt.isoformat() + "Z",
+                        "timeframe": timeframe,
+                        "limit": 10000,  # Max per page
+                        "adjustment": "all",
+                    }
+                    if page_token:
+                        params["page_token"] = page_token
+
+                    resp = client.get(url, params=params, headers=headers)
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                    page_bars = data.get("bars") or []
+                    all_bars.extend(page_bars)
+
+                    # Check for next page
+                    page_token = data.get("next_page_token")
+                    if not page_token:
+                        break  # No more pages
+
         except httpx.HTTPStatusError as exc:
             raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
 
-        bars = data.get("bars") or []
         return [
             {
               "t": bar.get("t"),
@@ -144,8 +162,9 @@ def get_prices(
               "l": bar.get("l"),
               "c": bar.get("c"),
               "v": bar.get("v"),
+              "vw": bar.get("vw"),  # VWAP - critical for strategy calculations
             }
-            for bar in bars
+            for bar in all_bars
         ]
 
     # Fallback to Polygon if Alpaca is not configured

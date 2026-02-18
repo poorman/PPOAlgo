@@ -20,8 +20,8 @@ from config import PPOALGO_API, WIDESURF_API_KEY, WIDESURF_API_URL, MASSIVE_API_
 # Fallback for API credentials (not in all config versions)
 ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID", "PKYAH5AZB64NRG2UB6QT3ISHPG")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets/v2")
-WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "2vOf7y2q0qrEkRI4NYOIAprAhFaEoHKglZMGrG2GUgE")
-WIDESURF_API_URL = os.getenv("WIDESURF_API_URL", "http://10.0.0.94:8020")
+WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "69xn13ehEccqzDJxw29KH0mzzbIIgI2NRttD7m6p9gA")
+WIDESURF_API_URL = os.getenv("WIDESURF_API_URL", "http://10.0.0.94:1020")
 
 
 
@@ -384,14 +384,13 @@ async def compare_prices(symbol: str, date: str, time: str = "10:00"):
         result["alpaca_error"] = str(e)
     
     # =========================================================================
-    # WIDESURF DATA (direct API call - uses X-API-KEY header)
+    # WIDESURF DATA (direct API call - uses apiKey query param)
     # =========================================================================
     try:
         widesurf_url = f"{WIDESURF_API_URL}/v1/aggs/ticker/{symbol}/range/1/minute/{date}/{date}"
         params = {"adjusted": "true", "sort": "asc", "limit": 50000, "apiKey": WIDESURF_API_KEY}
-        headers = {"X-API-KEY": WIDESURF_API_KEY}
         
-        ws_resp = requests.get(widesurf_url, params=params, headers=headers, timeout=60)
+        ws_resp = requests.get(widesurf_url, params=params, timeout=60)
         
         if ws_resp.status_code == 200:
             ws_data = ws_resp.json()

@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPOAlgo Optimizer - Turbo Edition</title>
+    <style>
+        :root {
+            --bg-dark: #0f1419;
+            --bg-card: #1a1f2e;
+            --bg-input: #252d3d;
+            --text-primary: #e7e9ea;
+            --text-secondary: #71767b;
+            --accent: #1d9bf0;
+            --success: #00ba7c;
+            --warning: #ffad1f;
+            --danger: #f4212e;
+            --border: #2f3336;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+        }
+
+        header {
+            background: #111625;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .performance-stats {
+            display: flex;
+            gap: 2rem;
+            font-size: 0.9rem;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .stat-value {
+            color: var(--success);
+            font-weight: bold;
+        }
+
+        main {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 350px 1fr 350px;
+            gap: 1.5rem;
+        }
+
+        .panel {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+        }
+
+        .panel h2 {
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .btn {
+            padding: 0.875rem 1.5rem;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+            width: 100%;
+        }
+
+        .btn-primary:hover { background: #1a8cd8; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .quick-filters {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .filter-btn {
+            padding: 0.5rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.85rem;
+            text-align: center;
+        }
+
+        .filter-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+
+        .filter-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .optimization-mode {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .mode-btn {
+            padding: 0.75rem;
+            background: var(--bg-input);
+            border: 2px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .mode-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        .progress-container {
+            margin-top: 1rem;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: var(--bg-input);
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--success));
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .results-grid {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .result-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            display: grid;
+            grid-template-columns: 80px 1fr auto;
+            align-items: center;
+            gap: 1rem;
+            transition: all 0.2s;
+        }
+
+        .result-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .result-symbol {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--accent);
+        }
+
+        .result-metrics {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .metric {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .metric-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .metric-value {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .sort-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .sort-btn {
+            padding: 0.5rem 1rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+
+        .sort-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .hardware-status {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background: var(--bg-input);
+            border-radius: 8px;
+        }
+
+        .hw-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .hw-label {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .hw-value {
+            font-weight: bold;
+            color: var(--success);
+        }
+
+        .gpu-indicator {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            background: var(--success);
+            color: white;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .cpu-indicator {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            background: var(--warning);
+            color: white;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-title">
+            <h1>PPOAlgo Optimizer</h1>
+            <span style="color: var(--success);">⚡ Turbo Mode</span>
+        </div>
+        <div class="performance-stats">
+            <div class="stat-item">
+                <span>CPU:</span>
+                <span class="stat-value" id="cpu-usage">32 cores ready</span>
+            </div>
+            <div class="stat-item">
+                <span>GPU:</span>
+                <span class="stat-value" id="gpu-usage">RTX 3080 ready</span>
+            </div>
+            <div class="stat-item">
+                <span>Speed:</span>
+                <span class="stat-value" id="processing-speed">0 stocks/min</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Left Panel: Configuration -->
+        <div class="panel">
+            <h2>⚙️ Configuration</h2>
+
+            <div class="hardware-status">
+                <div class="hw-item">
+                    <span class="hw-label">CPU Cores:</span>
+                    <span class="hw-value">32</span>
+                </div>
+                <div class="hw-item">
+                    <span class="hw-label">GPU VRAM:</span>
+                    <span class="hw-value">10 GB</span>
+                </div>
+                <div class="hw-item">
+                    <span class="hw-label">Workers:</span>
+                    <span class="hw-value" id="worker-count">30</span>
+                </div>
+                <div class="hw-item">
+                    <span class="hw-label">Batch Size:</span>
+                    <span class="hw-value" id="batch-size">5000</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Stock Symbols</label>
+                <textarea id="symbols" rows="3" placeholder="NVDA, TSLA, AAPL, MSFT..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Quick Lists</label>
+                <div class="quick-filters">
+                    <button class="filter-btn" onclick="loadList('sp500')">S&P 500</button>
+                    <button class="filter-btn" onclick="loadList('nasdaq100')">NASDAQ 100</button>
+                    <button class="filter-btn" onclick="loadList('volatile')">High Vol</button>
+                    <button class="filter-btn" onclick="loadList('tech')">Tech</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Optimization Mode</label>
+                <div class="optimization-mode">
+                    <button class="mode-btn active" data-mode="turbo">🚀 Turbo</button>
+                    <button class="mode-btn" data-mode="balanced">⚖️ Balanced</button>
+                    <button class="mode-btn" data-mode="thorough">🔍 Thorough</button>
+                </div>
+            </div>
+
+            <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+                <div>
+                    <label>Start Date</label>
+                    <input type="date" id="start-date">
+                </div>
+                <div>
+                    <label>End Date</label>
+                    <input type="date" id="end-date">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Capital</label>
+                <input type="number" id="capital" value="100000">
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="compound" checked> Compound Returns
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="use-gpu" checked> Use GPU Acceleration
+                </label>
+            </div>
+
+            <button class="btn btn-primary" onclick="startOptimization()">
+                🚀 Start Optimization
+            </button>
+
+            <div class="progress-container" id="progress" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill">0%</div>
+                </div>
+                <p style="text-align: center; margin-top: 0.5rem; font-size: 0.85rem;" id="progress-text">
+                    Processing...
+                </p>
+            </div>
+        </div>
+
+        <!-- Center Panel: Results -->
+        <div class="panel">
+            <h2>📊 Live Results</h2>
+
+            <div class="sort-buttons">
+                <button class="sort-btn active" onclick="sortResults('sharpe')">Sharpe</button>
+                <button class="sort-btn" onclick="sortResults('return')">Return</button>
+                <button class="sort-btn" onclick="sortResults('winrate')">Win Rate</button>
+                <button class="sort-btn" onclick="sortResults('trades')">Trades</button>
+            </div>
+
+            <div class="results-grid" id="results">
+                <!-- Results will be populated here -->
+            </div>
+        </div>
+
+        <!-- Right Panel: History & Stats -->
+        <div class="panel">
+            <h2>📈 Performance History</h2>
+
+            <div class="sort-buttons">
+                <button class="sort-btn active" onclick="sortHistory('date')">Recent</button>
+                <button class="sort-btn" onclick="sortHistory('best')">Best</button>
+                <button class="sort-btn" onclick="sortHistory('fastest')">Fastest</button>
+            </div>
+
+            <div id="history-list">
+                <!-- History will be populated here -->
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let ws = null;
+        let currentResults = [];
+        let startTime = null;
+        let processedCount = 0;
+
+        // Initialize WebSocket
+        function connectWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
+
+            ws.onopen = () => {
+                console.log('Connected to optimizer');
+                updateStatus('Connected', 'success');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                updateStatus('Connection error', 'danger');
+            };
+
+            ws.onclose = () => {
+                updateStatus('Disconnected', 'warning');
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        function handleMessage(data) {
+            switch(data.type) {
+                case 'stock_complete':
+                    addResult(data.result);
+                    processedCount++;
+                    updateSpeed();
+                    break;
+                case 'job_progress':
+                    updateProgress(data.completed, data.total, data.message);
+                    break;
+                case 'optimization_complete':
+                    onComplete(data);
+                    break;
+            }
+        }
+
+        function startOptimization() {
+            const symbols = document.getElementById('symbols').value
+                .split(',')
+                .map(s => s.trim())
+                .filter(s => s);
+
+            if (symbols.length === 0) {
+                alert('Please enter at least one symbol');
+                return;
+            }
+
+            const mode = document.querySelector('.mode-btn.active').dataset.mode;
+            const useGpu = document.getElementById('use-gpu').checked;
+
+            // Determine parameters based on mode
+            let nTrials, method;
+            switch(mode) {
+                case 'turbo':
+                    nTrials = useGpu ? 10000 : 200;
+                    method = useGpu ? 'gpu_grid' : 'optuna';
+                    break;
+                case 'balanced':
+                    nTrials = useGpu ? 5000 : 500;
+                    method = 'hybrid';
+                    break;
+                case 'thorough':
+                    nTrials = useGpu ? 20000 : 1000;
+                    method = 'exhaustive';
+                    break;
+            }
+
+            const request = {
+                symbols: symbols,
+                start_date: document.getElementById('start-date').value,
+                end_date: document.getElementById('end-date').value,
+                capital: parseFloat(document.getElementById('capital').value),
+                use_gpu: useGpu,
+                n_trials: nTrials
+            };
+
+            // Reset UI
+            currentResults = [];
+            processedCount = 0;
+            startTime = Date.now();
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('progress').style.display = 'block';
+
+            // Send request
+            fetch('/api/optimize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(request)
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Optimization started:', data);
+                updateStatus(`Processing ${symbols.length} stocks...`, 'warning');
+            })
+            .catch(error => {
+                console.error('Error starting optimization:', error);
+                updateStatus('Failed to start', 'danger');
+            });
+        }
+
+        function addResult(result) {
+            currentResults.push(result);
+
+            const card = document.createElement('div');
+            card.className = 'result-card';
+
+            const engineType = result.method.includes('gpu') ?
+                '<span class="gpu-indicator">GPU</span>' :
+                '<span class="cpu-indicator">CPU</span>';
+
+            card.innerHTML = `
+                <div class="result-symbol">${result.symbol}</div>
+                <div class="result-metrics">
+                    <div class="metric">
+                        <span class="metric-label">Sharpe</span>
+                        <span class="metric-value">${result.sharpe_ratio.toFixed(2)}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Return</span>
+                        <span class="metric-value">${(result.total_return * 100).toFixed(1)}%</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Win Rate</span>
+                        <span class="metric-value">${(result.win_rate * 100).toFixed(0)}%</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Buy/Sell</span>
+                        <span class="metric-value">${(result.buy_trigger * 100).toFixed(1)}%/${(result.sell_trigger * 100).toFixed(1)}%</span>
+                    </div>
+                </div>
+                <div>${engineType}</div>
+            `;
+
+            document.getElementById('results').appendChild(card);
+        }
+
+        function updateProgress(completed, total, message) {
+            const percentage = (completed / total * 100).toFixed(0);
+            document.getElementById('progress-fill').style.width = `${percentage}%`;
+            document.getElementById('progress-fill').textContent = `${percentage}%`;
+            document.getElementById('progress-text').textContent = message || `${completed}/${total} stocks processed`;
+        }
+
+        function updateSpeed() {
+            if (!startTime) return;
+
+            const elapsed = (Date.now() - startTime) / 1000 / 60; // minutes
+            const speed = (processedCount / elapsed).toFixed(0);
+            document.getElementById('processing-speed').textContent = `${speed} stocks/min`;
+        }
+
+        function updateStatus(message, type) {
+            console.log(`[${type}] ${message}`);
+        }
+
+        function loadList(type) {
+            const lists = {
+                'sp500': 'AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,BRK.B,JPM,V',
+                'nasdaq100': 'AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,AVGO,PEP,COST',
+                'volatile': 'TSLA,NVDA,AMD,COIN,RIVN,LCID,GME,AMC,PLTR,SOFI',
+                'tech': 'NVDA,AMD,INTC,QCOM,AVGO,MU,MRVL,AMAT,LRCX,KLAC'
+            };
+
+            document.getElementById('symbols').value = lists[type] || '';
+
+            // Update active button
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+
+        function sortResults(by) {
+            // Update active button
+            document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Sort results
+            currentResults.sort((a, b) => {
+                switch(by) {
+                    case 'sharpe': return b.sharpe_ratio - a.sharpe_ratio;
+                    case 'return': return b.total_return - a.total_return;
+                    case 'winrate': return b.win_rate - a.win_rate;
+                    case 'trades': return b.trades - a.trades;
+                    default: return 0;
+                }
+            });
+
+            // Re-render
+            document.getElementById('results').innerHTML = '';
+            currentResults.forEach(addResult);
+        }
+
+        function sortHistory(by) {
+            // Update active button in history panel
+            const historyBtns = document.querySelector('#history-list')
+                ?.closest('.panel')
+                ?.querySelectorAll('.sort-btn');
+            if (historyBtns) {
+                historyBtns.forEach(btn => btn.classList.remove('active'));
+                event.target.classList.add('active');
+            }
+
+            // Fetch sorted history from API
+            fetch(`/api/history?sort=${by}`)
+                .then(r => r.json())
+                .then(data => {
+                    const list = document.getElementById('history-list');
+                    if (!data || !data.length) {
+                        list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:2rem;">No history yet</p>';
+                        return;
+                    }
+                    list.innerHTML = data.slice(0, 20).map(item => `
+                        <div class="result-card" style="grid-template-columns: 80px 1fr; margin-bottom:0.5rem;">
+                            <div class="result-symbol">${item.symbol || item.job_id || '—'}</div>
+                            <div class="result-metrics">
+                                <div class="metric">
+                                    <span class="metric-label">Return</span>
+                                    <span class="metric-value">${item.total_return != null ? (item.total_return * 100).toFixed(1) + '%' : '—'}</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Sharpe</span>
+                                    <span class="metric-value">${item.sharpe_ratio != null ? item.sharpe_ratio.toFixed(2) : '—'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                })
+                .catch(() => {
+                    document.getElementById('history-list').innerHTML =
+                        '<p style="color:var(--text-secondary);text-align:center;padding:2rem;">Failed to load history</p>';
+                });
+        }
+
+        function onComplete(data) {
+            document.getElementById('progress').style.display = 'none';
+            updateStatus('Optimization complete!', 'success');
+
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            alert(`Optimization complete!\nProcessed ${processedCount} stocks in ${elapsed} seconds\nSpeed: ${(processedCount / elapsed * 60).toFixed(0)} stocks/min`);
+        }
+
+        // Mode selection
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+
+        // Set default dates (1 year back to today)
+        (function setDefaultDates() {
+            const today = new Date();
+            const oneYearAgo = new Date();
+            oneYearAgo.setFullYear(today.getFullYear() - 1);
+            document.getElementById('end-date').value = today.toISOString().split('T')[0];
+            document.getElementById('start-date').value = oneYearAgo.toISOString().split('T')[0];
+        })();
+
+        // Initialize on load
+        connectWebSocket();
+    </script>
+</body>
+</html>

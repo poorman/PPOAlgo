@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Widesurf API — Architecture Gameplan</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a28;
+            --bg-card-hover: #222236;
+            --border: #2a2a40;
+            --border-glow: #4f46e5;
+            --text-primary: #f0f0f5;
+            --text-secondary: #9898b0;
+            --text-muted: #686880;
+            --accent-blue: #6366f1;
+            --accent-green: #22c55e;
+            --accent-orange: #f59e0b;
+            --accent-red: #ef4444;
+            --accent-purple: #a855f7;
+            --accent-cyan: #06b6d4;
+            --accent-emerald: #10b981;
+            --gradient-1: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+            --gradient-2: linear-gradient(135deg, #06b6d4 0%, #22c55e 100%);
+            --gradient-3: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+
+        /* Animated background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(ellipse 800px 600px at 20% 10%, rgba(99,102,241,0.08) 0%, transparent 60%),
+                radial-gradient(ellipse 600px 500px at 80% 80%, rgba(168,85,247,0.06) 0%, transparent 60%),
+                radial-gradient(ellipse 500px 400px at 50% 50%, rgba(6,182,212,0.04) 0%, transparent 60%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ─── Hero ─── */
+        .hero {
+            padding: 80px 0 60px;
+            text-align: center;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px;
+            background: rgba(99,102,241,0.12);
+            border: 1px solid rgba(99,102,241,0.25);
+            border-radius: 100px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--accent-blue);
+            margin-bottom: 24px;
+            letter-spacing: 0.5px;
+        }
+
+        .hero h1 {
+            font-size: clamp(36px, 5vw, 64px);
+            font-weight: 900;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 16px;
+            letter-spacing: -1px;
+        }
+
+        .hero p {
+            font-size: 18px;
+            color: var(--text-secondary);
+            max-width: 700px;
+            margin: 0 auto 40px;
+        }
+
+        .hero-stats {
+            display: flex;
+            justify-content: center;
+            gap: 48px;
+            flex-wrap: wrap;
+        }
+
+        .hero-stat {
+            text-align: center;
+        }
+
+        .hero-stat .value {
+            font-size: 32px;
+            font-weight: 800;
+            background: var(--gradient-2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-stat .label {
+            font-size: 13px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 4px;
+        }
+
+        /* ─── Sections ─── */
+        .section {
+            padding: 60px 0;
+        }
+
+        .section-header {
+            margin-bottom: 40px;
+        }
+
+        .section-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--accent-blue);
+            margin-bottom: 12px;
+        }
+
+        .section-title {
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 12px;
+        }
+
+        .section-desc {
+            font-size: 16px;
+            color: var(--text-secondary);
+            max-width: 700px;
+        }
+
+        /* ─── Problem Cards ─── */
+        .problem-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .problem-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .problem-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: var(--gradient-3);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .problem-card:hover {
+            border-color: rgba(239,68,68,0.3);
+            transform: translateY(-2px);
+        }
+
+        .problem-card:hover::before { opacity: 1; }
+
+        .problem-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            margin-bottom: 16px;
+            background: rgba(239,68,68,0.1);
+        }
+
+        .problem-card h3 {
+            font-size: 17px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .problem-card p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* ─── Comparison Table ─── */
+        .table-wrapper {
+            overflow-x: auto;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead th {
+            padding: 16px 20px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            background: rgba(255,255,255,0.02);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        thead th:first-child { border-radius: 16px 0 0 0; }
+        thead th:last-child { border-radius: 0 16px 0 0; }
+
+        tbody td {
+            padding: 14px 20px;
+            font-size: 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            white-space: nowrap;
+        }
+
+        tbody tr:last-child td { border-bottom: none; }
+
+        tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+        .lang-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .lang-go {
+            background: rgba(0,173,238,0.12);
+            color: #00ADD8;
+        }
+
+        .lang-rust {
+            background: rgba(222,100,34,0.12);
+            color: #DE6422;
+        }
+
+        .lang-python {
+            background: rgba(55,118,171,0.12);
+            color: #3776AB;
+        }
+
+        .winner-cell {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        .loser-cell {
+            color: var(--text-muted);
+        }
+
+        .recommended {
+            background: rgba(99,102,241,0.06);
+        }
+
+        .recommended td:first-child {
+            position: relative;
+        }
+
+        .rec-tag {
+            display: inline-block;
+            font-size: 9px;
+            font-weight: 700;
+            background: var(--accent-blue);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 8px;
+            vertical-align: middle;
+            letter-spacing: 0.5px;
+        }
+
+        /* ─── Architecture Diagram ─── */
+        .arch-diagram {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            line-height: 1.8;
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .arch-diagram pre {
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        .arch-highlight { color: var(--accent-blue); font-weight: 600; }
+        .arch-green { color: var(--accent-green); font-weight: 600; }
+        .arch-orange { color: var(--accent-orange); font-weight: 600; }
+        .arch-cyan { color: var(--accent-cyan); font-weight: 600; }
+        .arch-purple { color: var(--accent-purple); font-weight: 600; }
+
+        /* ─── Feature Cards ─── */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+            gap: 20px;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            border-color: var(--border-glow);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(99,102,241,0.1);
+        }
+
+        .feature-number {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            font-weight: 800;
+            background: var(--gradient-1);
+            color: white;
+            margin-bottom: 16px;
+        }
+
+        .feature-card h3 {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .feature-card p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        /* ─── Code Blocks ─── */
+        .code-block {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 10px;
+            padding: 16px 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            line-height: 1.7;
+            overflow-x: auto;
+            color: var(--text-secondary);
+        }
+
+        .code-block .kw { color: #c792ea; }
+        .code-block .fn { color: #82aaff; }
+        .code-block .str { color: #c3e88d; }
+        .code-block .num { color: #f78c6c; }
+        .code-block .cm { color: #546e7a; }
+        .code-block .type { color: #ffcb6b; }
+
+        /* ─── Performance Table ─── */
+        .perf-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 30px;
+        }
+
+        .perf-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 24px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+
+        .perf-card:hover {
+            border-color: var(--border-glow);
+            transform: translateY(-2px);
+        }
+
+        .perf-label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .perf-before {
+            font-size: 16px;
+            color: var(--accent-red);
+            text-decoration: line-through;
+            opacity: 0.7;
+            margin-bottom: 4px;
+        }
+
+        .perf-after {
+            font-size: 28px;
+            font-weight: 800;
+            background: var(--gradient-2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .perf-unit {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* ─── Steps / Roadmap ─── */
+        .roadmap {
+            position: relative;
+            padding-left: 36px;
+        }
+
+        .roadmap::before {
+            content: '';
+            position: absolute;
+            left: 15px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(180deg, var(--accent-blue), var(--accent-purple), var(--accent-green));
+            border-radius: 2px;
+        }
+
+        .roadmap-step {
+            position: relative;
+            padding: 20px 0 40px 24px;
+        }
+
+        .roadmap-step:last-child { padding-bottom: 0; }
+
+        .roadmap-dot {
+            position: absolute;
+            left: -28px;
+            top: 22px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            border: 3px solid var(--bg-primary);
+            box-shadow: 0 0 0 2px var(--accent-blue);
+        }
+
+        .roadmap-step:nth-child(2) .roadmap-dot { background: var(--accent-purple); box-shadow: 0 0 0 2px var(--accent-purple); }
+        .roadmap-step:nth-child(3) .roadmap-dot { background: var(--accent-cyan); box-shadow: 0 0 0 2px var(--accent-cyan); }
+        .roadmap-step:nth-child(4) .roadmap-dot { background: var(--accent-green); box-shadow: 0 0 0 2px var(--accent-green); }
+        .roadmap-step:nth-child(5) .roadmap-dot { background: var(--accent-orange); box-shadow: 0 0 0 2px var(--accent-orange); }
+
+        .roadmap-phase {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--accent-blue);
+            margin-bottom: 6px;
+        }
+
+        .roadmap-step:nth-child(2) .roadmap-phase { color: var(--accent-purple); }
+        .roadmap-step:nth-child(3) .roadmap-phase { color: var(--accent-cyan); }
+        .roadmap-step:nth-child(4) .roadmap-phase { color: var(--accent-green); }
+        .roadmap-step:nth-child(5) .roadmap-phase { color: var(--accent-orange); }
+
+        .roadmap-title {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .roadmap-desc {
+            font-size: 14px;
+            color: var(--text-secondary);
+            max-width: 600px;
+        }
+
+        .roadmap-time {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 10px;
+            padding: 4px 10px;
+            background: rgba(255,255,255,0.04);
+            border-radius: 6px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* ─── Project Structure ─── */
+        .tree {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            line-height: 2;
+            padding: 24px 32px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+        }
+
+        .tree-dir { color: var(--accent-blue); font-weight: 600; }
+        .tree-file { color: var(--text-secondary); }
+        .tree-comment { color: var(--text-muted); font-size: 12px; }
+
+        /* ─── Divider ─── */
+        .divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border), transparent);
+            margin: 40px 0;
+        }
+
+        /* ─── Footer ─── */
+        .footer {
+            text-align: center;
+            padding: 60px 0;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        .footer a {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        /* ─── Utilities ─── */
+        .mt-20 { margin-top: 20px; }
+        .mt-30 { margin-top: 30px; }
+        .mt-40 { margin-top: 40px; }
+        .mb-20 { margin-bottom: 20px; }
+
+        .tag {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .tag-green { background: rgba(34,197,94,0.12); color: var(--accent-green); }
+        .tag-blue { background: rgba(99,102,241,0.12); color: var(--accent-blue); }
+        .tag-orange { background: rgba(245,158,11,0.12); color: var(--accent-orange); }
+        .tag-red { background: rgba(239,68,68,0.12); color: var(--accent-red); }
+
+        @media (max-width: 768px) {
+            .hero { padding: 48px 0 40px; }
+            .hero-stats { gap: 24px; }
+            .section { padding: 40px 0; }
+            .feature-grid { grid-template-columns: 1fr; }
+            .arch-diagram { padding: 20px; font-size: 11px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ════════════════════ HERO ════════════════════ -->
+<div class="container">
+    <section class="hero">
+        <div class="hero-badge">🌊 ARCHITECTURE GAMEPLAN</div>
+        <h1>Widesurf API v2</h1>
+        <p>Rebuild the Widesurf API for maximum throughput. From Python to Go — handling 10,000+ concurrent stock data requests in milliseconds.</p>
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <div class="value">500K+</div>
+                <div class="label">Requests/sec</div>
+            </div>
+            <div class="hero-stat">
+                <div class="value">&lt;1ms</div>
+                <div class="label">Cached Latency</div>
+            </div>
+            <div class="hero-stat">
+                <div class="value">50MB</div>
+                <div class="label">Memory Usage</div>
+            </div>
+            <div class="hero-stat">
+                <div class="value">10K+</div>
+                <div class="label">Concurrent Conns</div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ PROBLEM ════════════════════ -->
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">🔴 The Problem</div>
+            <h2 class="section-title">Why Python Can't Keep Up</h2>
+            <p class="section-desc">The current Python API becomes the bottleneck when the PPOAlgo optimizer sends 10-50 concurrent requests for historical price data.</p>
+        </div>
+
+        <div class="problem-grid">
+            <div class="problem-card">
+                <div class="problem-icon">🔒</div>
+                <h3>Python GIL</h3>
+                <p>Global Interpreter Lock means only one thread executes Python at a time. Even with async, JSON serialization and data processing are single-threaded.</p>
+            </div>
+            <div class="problem-card">
+                <div class="problem-icon">🐌</div>
+                <h3>JSON Serialization</h3>
+                <p>Python's json.dumps() is 10-50x slower than Go/Rust. Serializing 50,000 price bars per response creates severe CPU bottleneck.</p>
+            </div>
+            <div class="problem-card">
+                <div class="problem-icon">💾</div>
+                <h3>Memory Overhead</h3>
+                <p>Each Python connection uses ~1MB RAM. 50 concurrent connections = 500MB. Go uses 2KB per connection — that's 500x more efficient.</p>
+            </div>
+            <div class="problem-card">
+                <div class="problem-icon">📊</div>
+                <h3>No Response Caching</h3>
+                <p>Every request hits ClickHouse even for identical queries. Daily bars for AAPL don't change — they should be served from in-memory cache in &lt;1ms.</p>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ LANGUAGE COMPARISON ════════════════════ -->
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">⚖️ Language Comparison</div>
+            <h2 class="section-title">Go vs Rust vs Python</h2>
+            <p class="section-desc">Head-to-head comparison for building a high-throughput stock data API.</p>
+        </div>
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Factor</th>
+                        <th>Go (Fiber) 🏆</th>
+                        <th>Rust (Actix-Web)</th>
+                        <th>Python (FastAPI)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="recommended">
+                        <td>Requests/sec</td>
+                        <td class="winner-cell">200K – 500K <span class="rec-tag">PICK</span></td>
+                        <td class="winner-cell">500K – 1M+</td>
+                        <td class="loser-cell">10K – 30K</td>
+                    </tr>
+                    <tr>
+                        <td>Latency (p99)</td>
+                        <td class="winner-cell">1 – 5ms</td>
+                        <td class="winner-cell">&lt;1ms</td>
+                        <td class="loser-cell">10 – 50ms</td>
+                    </tr>
+                    <tr>
+                        <td>Memory per connection</td>
+                        <td class="winner-cell">~8KB</td>
+                        <td class="winner-cell">~2KB</td>
+                        <td class="loser-cell">~1MB</td>
+                    </tr>
+                    <tr>
+                        <td>JSON serialization</td>
+                        <td class="winner-cell">10 – 20x faster</td>
+                        <td class="winner-cell">20 – 50x faster</td>
+                        <td>baseline</td>
+                    </tr>
+                    <tr>
+                        <td>Concurrency model</td>
+                        <td class="winner-cell">Goroutines (millions)</td>
+                        <td>Async (tokio)</td>
+                        <td class="loser-cell">GIL-limited</td>
+                    </tr>
+                    <tr>
+                        <td>ClickHouse driver</td>
+                        <td><span class="tag tag-green">✅ clickhouse-go</span></td>
+                        <td><span class="tag tag-green">✅ clickhouse-rs</span></td>
+                        <td><span class="tag tag-green">✅ clickhouse-driver</span></td>
+                    </tr>
+                    <tr>
+                        <td>Learning curve</td>
+                        <td><span class="tag tag-green">Easy</span></td>
+                        <td><span class="tag tag-red">Steep</span></td>
+                        <td><span class="tag tag-green">Easiest</span></td>
+                    </tr>
+                    <tr>
+                        <td>Time to production</td>
+                        <td><span class="tag tag-green">1 – 2 weeks</span></td>
+                        <td><span class="tag tag-orange">1 – 2 months</span></td>
+                        <td><span class="tag tag-blue">Already built</span></td>
+                    </tr>
+                    <tr>
+                        <td>Deployment</td>
+                        <td class="winner-cell">Single binary (~10MB)</td>
+                        <td class="winner-cell">Single binary (~5MB)</td>
+                        <td class="loser-cell">venv + deps (~500MB)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 20px; padding: 16px 20px; background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); border-radius: 12px;">
+            <strong style="color: var(--accent-blue);">🏆 Recommendation: Go (Golang)</strong>
+            <span style="color: var(--text-secondary); font-size: 14px; margin-left: 8px;">90% of Rust's performance with 10% of the learning curve. You'll be productive in days, not months.</span>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ ARCHITECTURE ════════════════════ -->
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">🏗️ Architecture</div>
+            <h2 class="section-title">System Design</h2>
+            <p class="section-desc">Three layers: HTTP router, in-memory cache, and ClickHouse connection pool.</p>
+        </div>
+
+        <div class="arch-diagram">
+<pre>
+ <span class="arch-highlight">┌──────────────────────────────────────────────────────────────────────┐</span>
+ <span class="arch-highlight">│                     WIDESURF API v2  (Go + Fiber)                    │</span>
+ <span class="arch-highlight">└──────────────────────────────────────────────────────────────────────┘</span>
+
+     <span class="arch-green">┌─────────────────┐</span>     <span class="arch-cyan">┌─────────────────────────────┐</span>
+     <span class="arch-green">│   HTTP Router    │</span>     <span class="arch-cyan">│   In-Memory LRU Cache       │</span>
+     <span class="arch-green">│   (Fiber/Gin)    │</span>────▶<span class="arch-cyan">│   (Ristretto · 1GB)         │</span>
+     <span class="arch-green">│                  │</span>     <span class="arch-cyan">│                             │</span>
+     <span class="arch-green">│  • Goroutine     │</span>     <span class="arch-cyan">│  • Daily bars: TTL 4 hours  │</span>
+     <span class="arch-green">│    per request   │</span>     <span class="arch-cyan">│  • 1min bars:  TTL 5 min    │</span>
+     <span class="arch-green">│  • Zero-alloc    │</span>     <span class="arch-cyan">│  • 10AM aggs:  TTL 4 hours  │</span>
+     <span class="arch-green">│    routing       │</span>     <span class="arch-cyan">│  • 90%+ hit rate expected   │</span>
+     <span class="arch-green">└─────────────────┘</span>     <span class="arch-cyan">└──────────────┬──────────────┘</span>
+                                             │ <span class="arch-orange">cache MISS</span>
+                                             ▼
+                           <span class="arch-purple">┌───────────────────────────────┐</span>
+                           <span class="arch-purple">│   ClickHouse Connection Pool  │</span>
+                           <span class="arch-purple">│   (50-100 persistent conns)   │</span>
+                           <span class="arch-purple">│                               │</span>
+                           <span class="arch-purple">│  • Native protocol (port 9000)│</span>
+                           <span class="arch-purple">│  • Column-oriented reads      │</span>
+                           <span class="arch-purple">│  • Materialized daily views   │</span>
+                           <span class="arch-purple">└───────────────┬───────────────┘</span>
+                                             │
+                                             ▼
+                           <span class="arch-orange">┌───────────────────────────────┐</span>
+                           <span class="arch-orange">│        ClickHouse DB          │</span>
+                           <span class="arch-orange">│                               │</span>
+                           <span class="arch-orange">│  minute_bars       (~50B rows)│</span>
+                           <span class="arch-orange">│  daily_ohlcv_mv    (mat.view) │</span>
+                           <span class="arch-orange">│  time_sampled_mv   (mat.view) │</span>
+                           <span class="arch-orange">└───────────────────────────────┘</span>
+
+     ╔══════════════════════════════════════════════════════╗
+     ║  <span class="arch-green">REQUEST FLOW</span>                                        ║
+     ║                                                      ║
+     ║  1. Request arrives → goroutine spawned  (&lt;1μs)     ║
+     ║  2. Check LRU cache                    (&lt;100ns)     ║
+     ║  3a. Cache HIT  → return JSON           (&lt;1ms)      ║
+     ║  3b. Cache MISS → query ClickHouse      (5-20ms)    ║
+     ║  4. Store result in cache                            ║
+     ║  5. Return JSON response                             ║
+     ╚══════════════════════════════════════════════════════╝
+</pre>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ KEY OPTIMIZATIONS ════════════════════ -->
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">⚡ Key Optimizations</div>
+            <h2 class="section-title">5 Critical Features</h2>
+            <p class="section-desc">Each optimization targets a specific bottleneck. Together they deliver 100x throughput improvement.</p>
+        </div>
+
+        <div class="feature-grid">
+            <!-- Feature 1 -->
+            <div class="feature-card">
+                <div class="feature-number">1</div>
+                <h3>In-Memory LRU Cache</h3>
+                <p>Cache API responses in memory with TTL-based expiry. Daily bars don't change — serve them in &lt;1ms from RAM instead of querying ClickHouse every time.</p>
+                <div class="code-block">
+<span class="cm">// Use Ristretto for concurrent lock-free cache</span>
+<span class="kw">cache</span>, _ := ristretto.<span class="fn">NewCache</span>(&ristretto.Config{
+    NumCounters: <span class="num">1e7</span>,     <span class="cm">// 10M keys</span>
+    MaxCost:     <span class="num">1 << 30</span>, <span class="cm">// 1GB max</span>
+    BufferItems: <span class="num">64</span>,
+})
+
+<span class="cm">// Cache key: "AAPL:2024-01-01:2025-01-01:day"</span>
+<span class="cm">// Eliminates 90%+ of ClickHouse queries</span>
+                </div>
+            </div>
+
+            <!-- Feature 2 -->
+            <div class="feature-card">
+                <div class="feature-number">2</div>
+                <h3>ClickHouse Materialized Views</h3>
+                <p>Pre-compute daily OHLCV aggregates from 1-minute data using materialized views. Queries hit pre-aggregated data instead of scanning billions of rows.</p>
+                <div class="code-block">
+<span class="kw">CREATE MATERIALIZED VIEW</span> daily_ohlcv_mv
+<span class="kw">ENGINE</span> = AggregatingMergeTree()
+<span class="kw">ORDER BY</span> (ticker, bar_date)
+<span class="kw">AS SELECT</span>
+  ticker,
+  <span class="fn">toDate</span>(timestamp) <span class="kw">AS</span> bar_date,
+  <span class="fn">argMinState</span>(open, timestamp) <span class="kw">AS</span> open,
+  <span class="fn">maxState</span>(high) <span class="kw">AS</span> high,
+  <span class="fn">minState</span>(low) <span class="kw">AS</span> low,
+  <span class="fn">argMaxState</span>(close, timestamp) <span class="kw">AS</span> close,
+  <span class="fn">sumState</span>(volume) <span class="kw">AS</span> volume
+<span class="kw">FROM</span> minute_bars
+<span class="kw">GROUP BY</span> ticker, bar_date;
+                </div>
+            </div>
+
+            <!-- Feature 3 -->
+            <div class="feature-card">
+                <div class="feature-number">3</div>
+                <h3>Connection Pooling</h3>
+                <p>Maintain 50-100 persistent TCP connections to ClickHouse. No connection setup overhead per request — goroutines borrow from the pool instantly.</p>
+                <div class="code-block">
+conn, _ := clickhouse.<span class="fn">Open</span>(&clickhouse.Options{
+    Addr: []<span class="type">string</span>{<span class="str">"localhost:9000"</span>},
+    Auth: clickhouse.Auth{
+        Database: <span class="str">"widesurf"</span>,
+    },
+    MaxOpenConns: <span class="num">100</span>,
+    MaxIdleConns: <span class="num">50</span>,
+    ConnMaxLifetime: <span class="num">10</span> * time.Minute,
+})
+                </div>
+            </div>
+
+            <!-- Feature 4 -->
+            <div class="feature-card">
+                <div class="feature-number">4</div>
+                <h3>Batch Endpoint</h3>
+                <p>New endpoint that accepts multiple tickers in one request. One ClickHouse query with <code>WHERE ticker IN (...)</code> is 100x faster than 500 individual queries.</p>
+                <div class="code-block">
+<span class="cm">// NEW: Batch endpoint</span>
+<span class="kw">POST</span> /v1/aggs/batch
+{
+  <span class="str">"tickers"</span>: [<span class="str">"AAPL"</span>,<span class="str">"MSFT"</span>,<span class="str">"GOOG"</span>, ...],
+  <span class="str">"timespan"</span>: <span class="str">"day"</span>,
+  <span class="str">"from"</span>: <span class="str">"2024-01-01"</span>,
+  <span class="str">"to"</span>: <span class="str">"2025-01-01"</span>
+}
+
+<span class="cm">// → Single ClickHouse query</span>
+<span class="cm">// → Returns all tickers in one response</span>
+                </div>
+            </div>
+
+            <!-- Feature 5 -->
+            <div class="feature-card">
+                <div class="feature-number">5</div>
+                <h3>Pre-Serialized JSON</h3>
+                <p>For hot data (popular stocks, recent dates), pre-serialize JSON responses and store raw bytes. Skip marshaling entirely — just write bytes to socket.</p>
+                <div class="code-block">
+<span class="cm">// Pre-serialize popular responses</span>
+<span class="kw">type</span> <span class="type">CachedResponse</span> <span class="kw">struct</span> {
+    JSON      []<span class="type">byte</span>    <span class="cm">// raw JSON bytes</span>
+    ExpiresAt <span class="type">time.Time</span>
+}
+
+<span class="cm">// Serve directly — zero JSON marshaling</span>
+c.<span class="fn">Set</span>(<span class="str">"Content-Type"</span>, <span class="str">"application/json"</span>)
+<span class="kw">return</span> c.<span class="fn">Send</span>(cached.JSON)
+                </div>
+            </div>
+
+            <!-- Feature 6 -->
+            <div class="feature-card">
+                <div class="feature-number">6</div>
+                <h3>Time-Sampled Materialized View</h3>
+                <p>Pre-compute 10:00 AM and 9:40 AM aggregates using materialized views. The optimizer's most frequent queries become instant lookups.</p>
+                <div class="code-block">
+<span class="cm">-- Pre-compute 10AM aggregates</span>
+<span class="kw">CREATE MATERIALIZED VIEW</span> agg_10am_mv
+<span class="kw">ENGINE</span> = AggregatingMergeTree()
+<span class="kw">ORDER BY</span> (ticker, bar_date)
+<span class="kw">AS SELECT</span>
+  ticker,
+  <span class="fn">toDate</span>(timestamp) <span class="kw">AS</span> bar_date,
+  <span class="fn">argMaxState</span>(close, timestamp) <span class="kw">AS</span> close,
+  <span class="fn">maxState</span>(high) <span class="kw">AS</span> high,
+  <span class="fn">minState</span>(low) <span class="kw">AS</span> low
+<span class="kw">FROM</span> minute_bars
+<span class="kw">WHERE</span> <span class="fn">toHour</span>(timestamp) &lt;= <span class="num">10</span>
+<span class="kw">GROUP BY</span> ticker, bar_date;
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ EXPECTED PERFORMANCE ════════════════════ -->
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">📊 Expected Results</div>
+            <h2 class="section-title">Performance Improvement</h2>
+            <p class="section-desc">Before vs after comparison when serving the PPOAlgo optimizer's workload.</p>
+        </div>
+
+        <div class="perf-grid">
+            <div class="perf-card">
+                <div class="perf-label">Concurrent Requests</div>
+                <div class="perf-before">~30 before degrading</div>
+                <div class="perf-after">10,000+</div>
+                <div class="perf-unit">connections</div>
+            </div>
+            <div class="perf-card">
+                <div class="perf-label">Cached Latency</div>
+                <div class="perf-before">10 – 50ms</div>
+                <div class="perf-after">&lt;1ms</div>
+                <div class="perf-unit">per response</div>
+            </div>
+            <div class="perf-card">
+                <div class="perf-label">ClickHouse Latency</div>
+                <div class="perf-before">50 – 200ms</div>
+                <div class="perf-after">5 – 20ms</div>
+                <div class="perf-unit">per query</div>
+            </div>
+            <div class="perf-card">
+                <div class="perf-label">Memory Usage</div>
+                <div class="perf-before">500MB – 2GB</div>
+                <div class="perf-after">50 – 200MB</div>
+                <div class="perf-unit">total RAM</div>
+            </div>
+            <div class="perf-card">
+                <div class="perf-label">10K Stocks Optimization</div>
+                <div class="perf-before">Hours</div>
+                <div class="perf-after">Minutes</div>
+                <div class="perf-unit">total time</div>
+            </div>
+        </div>
+
+        <div class="table-wrapper mt-40">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Endpoint</th>
+                        <th>Python (current)</th>
+                        <th>Go (projected)</th>
+                        <th>Improvement</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>/v1/aggs/ticker/AAPL/range/1/day/...</code></td>
+                        <td class="loser-cell">25ms</td>
+                        <td class="winner-cell">&lt;1ms (cached)</td>
+                        <td><span class="tag tag-green">25x faster</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>/v1/aggs/ticker/AAPL/range/1/minute/.../1000</code></td>
+                        <td class="loser-cell">80ms</td>
+                        <td class="winner-cell">2ms (cached)</td>
+                        <td><span class="tag tag-green">40x faster</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>/v1/aggs/batch</code> (100 tickers)</td>
+                        <td class="loser-cell">N/A (100 × 25ms = 2.5s)</td>
+                        <td class="winner-cell">15ms (single query)</td>
+                        <td><span class="tag tag-green">166x faster</span></td>
+                    </tr>
+                    <tr>
+                        <td>50 concurrent requests</td>
+                        <td class="loser-cell">Throttled / timeout</td>
+                        <td class="winner-cell">50ms total</td>
+                        <td><span class="tag tag-green">∞ (was broken)</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ PROJECT STRUCTURE ════════════════════ -->
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">📁 Project Structure</div>
+            <h2 class="section-title">Go Project Layout</h2>
+        </div>
+
+        <div class="tree">
+            <span class="tree-dir">widesurf-api/</span><br>
+            ├── <span class="tree-file">main.go</span> <span class="tree-comment">— Server setup, routes, middleware</span><br>
+            ├── <span class="tree-file">go.mod</span> <span class="tree-comment">— Dependencies</span><br>
+            ├── <span class="tree-dir">handlers/</span><br>
+            │&nbsp;&nbsp; ├── <span class="tree-file">aggs.go</span> <span class="tree-comment">— /v1/aggs/ticker/{ticker}/range/... handler</span><br>
+            │&nbsp;&nbsp; ├── <span class="tree-file">batch.go</span> <span class="tree-comment">— /v1/aggs/batch multi-ticker handler</span><br>
+            │&nbsp;&nbsp; └── <span class="tree-file">tickers.go</span> <span class="tree-comment">— /v1/tickers endpoint</span><br>
+            ├── <span class="tree-dir">cache/</span><br>
+            │&nbsp;&nbsp; └── <span class="tree-file">cache.go</span> <span class="tree-comment">— LRU cache wrapper (Ristretto)</span><br>
+            ├── <span class="tree-dir">db/</span><br>
+            │&nbsp;&nbsp; ├── <span class="tree-file">clickhouse.go</span> <span class="tree-comment">— Connection pool + queries</span><br>
+            │&nbsp;&nbsp; └── <span class="tree-file">models.go</span> <span class="tree-comment">— Bar, AggResult structs</span><br>
+            ├── <span class="tree-dir">middleware/</span><br>
+            │&nbsp;&nbsp; ├── <span class="tree-file">ratelimit.go</span> <span class="tree-comment">— Per-IP rate limiting</span><br>
+            │&nbsp;&nbsp; └── <span class="tree-file">logger.go</span> <span class="tree-comment">— Request logging</span><br>
+            ├── <span class="tree-file">Dockerfile</span> <span class="tree-comment">— Multi-stage build (15MB image)</span><br>
+            └── <span class="tree-file">docker-compose.yml</span>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ ROADMAP ════════════════════ -->
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">🗺️ Implementation Roadmap</div>
+            <h2 class="section-title">Build Phase by Phase</h2>
+            <p class="section-desc">Ship a working API in Phase 1, then iterate with optimizations.</p>
+        </div>
+
+        <div class="roadmap">
+            <div class="roadmap-step">
+                <div class="roadmap-dot"></div>
+                <div class="roadmap-phase">Phase 1 — Foundation</div>
+                <div class="roadmap-title">Core API + ClickHouse Integration</div>
+                <div class="roadmap-desc">Set up Go project with Fiber, implement the existing Widesurf API routes, connect to ClickHouse with connection pooling. Mirror exact same endpoints so PPOAlgo optimizer works without changes.</div>
+                <div class="roadmap-time">⏱️ 2 – 3 days</div>
+            </div>
+
+            <div class="roadmap-step">
+                <div class="roadmap-dot"></div>
+                <div class="roadmap-phase">Phase 2 — Caching Layer</div>
+                <div class="roadmap-title">In-Memory LRU Cache</div>
+                <div class="roadmap-desc">Add Ristretto cache with TTL-based expiry. Daily bars cached 4 hours, minute bars 5 minutes. This alone delivers 90%+ of the performance improvement.</div>
+                <div class="roadmap-time">⏱️ 1 day</div>
+            </div>
+
+            <div class="roadmap-step">
+                <div class="roadmap-dot"></div>
+                <div class="roadmap-phase">Phase 3 — ClickHouse Optimization</div>
+                <div class="roadmap-title">Materialized Views + Query Tuning</div>
+                <div class="roadmap-desc">Create materialized views for daily OHLCV and time-sampled aggregates (10AM, 9:40AM). Optimize table engines, partition keys, and query patterns.</div>
+                <div class="roadmap-time">⏱️ 1 – 2 days</div>
+            </div>
+
+            <div class="roadmap-step">
+                <div class="roadmap-dot"></div>
+                <div class="roadmap-phase">Phase 4 — Batch Endpoint</div>
+                <div class="roadmap-title">Multi-Ticker Batch API</div>
+                <div class="roadmap-desc">New POST /v1/aggs/batch endpoint. PPOAlgo pre-fetches all stock data in a single request instead of N individual calls. Update PPOAlgo optimizer to use batch endpoint.</div>
+                <div class="roadmap-time">⏱️ 1 day</div>
+            </div>
+
+            <div class="roadmap-step">
+                <div class="roadmap-dot"></div>
+                <div class="roadmap-phase">Phase 5 — Production Polish</div>
+                <div class="roadmap-title">Monitoring, Rate Limiting, Docker</div>
+                <div class="roadmap-desc">Add Prometheus metrics, per-IP rate limiting, health checks, graceful shutdown. Multi-stage Docker build producing a ~15MB image. Deploy alongside existing infrastructure.</div>
+                <div class="roadmap-time">⏱️ 1 – 2 days</div>
+            </div>
+        </div>
+
+        <div style="margin-top: 40px; padding: 20px 24px; background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2); border-radius: 12px;">
+            <strong style="color: var(--accent-green);">📅 Total estimated time: 6 – 9 days</strong>
+            <p style="color: var(--text-secondary); font-size: 14px; margin-top: 6px;">Phase 1 + 2 alone (3-4 days) will deliver the majority of the performance improvement. Phases 3-5 are incremental optimizations.</p>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ QUICK START ════════════════════ -->
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">🚀 Quick Start</div>
+            <h2 class="section-title">Get Started in 5 Minutes</h2>
+        </div>
+
+        <div class="code-block" style="font-size: 13px;">
+<span class="cm"># Initialize Go project</span>
+<span class="fn">mkdir</span> widesurf-api && <span class="fn">cd</span> widesurf-api
+<span class="fn">go</span> mod init widesurf-api
+
+<span class="cm"># Install core dependencies</span>
+<span class="fn">go</span> get github.com/gofiber/fiber/v2              <span class="cm"># HTTP framework (Express-like)</span>
+<span class="fn">go</span> get github.com/ClickHouse/clickhouse-go/v2    <span class="cm"># ClickHouse native driver</span>
+<span class="fn">go</span> get github.com/dgraph-io/ristretto            <span class="cm"># In-memory cache (10M+ ops/sec)</span>
+
+<span class="cm"># Run the server</span>
+<span class="fn">go</span> run main.go
+<span class="cm"># → Listening on :8020</span>
+        </div>
+
+        <div class="mt-30" style="padding: 20px 24px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;">
+            <h3 style="font-size: 16px; margin-bottom: 12px;">📦 Key Go Packages</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px;">
+                <div style="padding: 12px 16px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+                    <div style="font-family: 'JetBrains Mono'; font-size: 13px; color: var(--accent-cyan);">gofiber/fiber</div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Express-inspired web framework. Zero-alloc routing, 10x faster than net/http.</div>
+                </div>
+                <div style="padding: 12px 16px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+                    <div style="font-family: 'JetBrains Mono'; font-size: 13px; color: var(--accent-cyan);">clickhouse-go/v2</div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Official ClickHouse Go client. Native protocol, connection pooling, batch inserts.</div>
+                </div>
+                <div style="padding: 12px 16px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+                    <div style="font-family: 'JetBrains Mono'; font-size: 13px; color: var(--accent-cyan);">dgraph-io/ristretto</div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">High-performance concurrent cache. Lock-free reads, 10M+ ops/sec.</div>
+                </div>
+                <div style="padding: 12px 16px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+                    <div style="font-family: 'JetBrains Mono'; font-size: 13px; color: var(--accent-cyan);">prometheus/client_golang</div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Expose /metrics for Grafana dashboards. Track latency, cache hit rate, QPS.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<!-- ════════════════════ FOOTER ════════════════════ -->
+<div class="footer">
+    <p>Widesurf API v2 Architecture Gameplan · Generated Feb 13, 2026</p>
+    <p style="margin-top: 8px;">Current Stack: ClickHouse + Python → Target: ClickHouse + <strong style="color: var(--accent-green);">Go</strong></p>
+</div>
+
+</body>
+</html>

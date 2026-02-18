@@ -60,7 +60,7 @@ This approach combines:
 |---------|-------------|
 | **🧠 Bayesian Optimization** | Uses Optuna's TPE sampler for intelligent parameter search |
 | **📊 VWAP Momentum Strategy** | Advanced 4-condition adaptive entry system |
-| **🔥 GPU Acceleration** | RTX 3089 EVGA support via CuPy for 100,000+ parallel backtests |
+| **🔥 GPU Acceleration** | RTX 3080 EVGA support via CuPy for 100,000+ parallel backtests |
 | **🦀 Rust + Rayon Parallel** | Compiled Rust binary uses all 32 CPU threads (i9-13900K) |
 | **📈 Real-time Progress** | Live WebSocket progress bar with ETA |
 | **💾 PostgreSQL History** | All results saved with full trade logs |
@@ -149,7 +149,7 @@ Access at: **http://localhost:8082**
 
 ---
 
-## 🔥 GPU Mode (RTX 3089 EVGA)
+## 🔥 GPU Mode (RTX 3080 EVGA)
 
 For maximum performance:
 

@@ -1,15 +1,15 @@
 version: "3.9"
 
 services:
-  ##  ppoalgo:
-  #    build: .
-  #    working_dir: /app
-  #    restart: unless-stopped
-  #    command: [ "python", "scripts/train_lstm.py" ]
-  #    volumes:
-  #      - .:/app
-  #    env_file:
-  #      - .env
+##  ppoalgo:
+#    build: .
+#    working_dir: /app
+#    restart: unless-stopped
+#    command: [ "python", "scripts/train_lstm.py" ]
+#    volumes:
+#      - .:/app
+#    env_file:
+#      - .env
 
   api:
     build: .
@@ -41,14 +41,14 @@ services:
       context: ./optimizer
       dockerfile: Dockerfile.gpu
     restart: unless-stopped
-    network_mode: host
-    command: [ "/bin/bash", "/app/start.sh" ]
+    command: ["/bin/bash", "/app/start.sh"]
+    ports:
+      - "8082:8000"
     env_file:
       - .env
     environment:
-      - PPOALGO_API=http://localhost:8010
-      - POSTGRES_HOST=localhost
-      - POSTGRES_PORT=5433
+      - PPOALGO_API=http://api:8000
+      - POSTGRES_HOST=db
     depends_on:
       - api
       - db
@@ -60,7 +60,7 @@ services:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [ gpu ]
+              capabilities: [gpu]
 
   db:
     image: postgres:15-alpine
