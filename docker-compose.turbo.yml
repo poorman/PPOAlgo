@@ -1,0 +1,176 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ppoalgo_api_turbo
+    working_dir: /app
+    command: [ "uvicorn", "backend.server:app", "--host", "0.0.0.0", "--port", "8000" ]
+    ports:
+      - "8010:8000"
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=ppoalgo
+      - POSTGRES_USER=ppoalgo
+      - POSTGRES_PASSWORD=ppoalgo
+    volumes:
+      - .:/app
+    networks:
+      - ppoalgo_network
+    depends_on:
+      - db
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    restart: unless-stopped
+
+  optimizer_turbo:
+    build:
+      context: ./optimizer
+      dockerfile: Dockerfile.turbo
+    container_name: ppoalgo_optimizer_turbo
+    network_mode: host
+    environment:
+      - PPOALGO_API=http://localhost:8010
+      - POSTGRES_HOST=localhost
+      - POSTGRES_PORT=5433
+      - POSTGRES_DB=ppoalgo
+      - POSTGRES_USER=ppoalgo
+      - POSTGRES_PASSWORD=ppoalgo
+      - POSTGRES_MAX_CONNECTIONS=200
+      - POSTGRES_POOL_SIZE=50
+      - CPU_WORKERS=30
+      - GPU_BATCH_SIZE=5000
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - WIDESURF_API_URL=http://10.0.0.94:8020
+      - WIDESURF_API_KEY=69xn13ehEccqzDJxw29KH0mzzbIIgI2NRttD7m6p9gA
+      - WIDESURF_V2_API_URL=http://10.0.0.94:8090
+      - WIDESURF_V2_API_KEY=69xn13ehEccqzDJxw29KH0mzzbIIgI2NRttD7m6p9gA
+    volumes:
+      - ./optimizer:/app
+      - ./optimizer/results:/app/results
+      - nvidia_cache:/tmp/cuda_cache
+      - numba_cache:/tmp/numba_cache
+    depends_on:
+      - db
+      - api
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+        limits:
+          cpus: '30'
+          memory: 32G
+    shm_size: '2gb' # Shared memory for parallel processing
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ppoalgo_frontend_turbo
+    ports:
+      - "8083:80"
+    volumes:
+      - ./optimizer/static/index_optimized.html:/usr/share/nginx/html/index.html:ro
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ppoalgo_network
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    container_name: ppoalgo_db_turbo
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_DB=ppoalgo
+      - POSTGRES_USER=ppoalgo
+      - POSTGRES_PASSWORD=ppoalgo
+      - POSTGRES_MAX_CONNECTIONS=200
+      - POSTGRES_SHARED_BUFFERS=2GB
+      - POSTGRES_EFFECTIVE_CACHE_SIZE=8GB
+      - POSTGRES_MAINTENANCE_WORK_MEM=512MB
+      - POSTGRES_WORK_MEM=16MB
+      - POSTGRES_MAX_WAL_SIZE=2GB
+      - POSTGRES_MIN_WAL_SIZE=1GB
+      - POSTGRES_CHECKPOINT_COMPLETION_TARGET=0.9
+      - POSTGRES_WAL_BUFFERS=16MB
+      - POSTGRES_DEFAULT_STATISTICS_TARGET=100
+      - POSTGRES_RANDOM_PAGE_COST=1.1
+    volumes:
+      - postgres_data_turbo:/var/lib/postgresql/data
+    networks:
+      - ppoalgo_network
+    restart: unless-stopped
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "effective_cache_size=8GB"
+      - "-c"
+      - "work_mem=16MB"
+      - "-c"
+      - "maintenance_work_mem=512MB"
+
+  # Optional: Performance monitoring with Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ppoalgo_prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - ppoalgo_network
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  # Optional: GPU monitoring
+  gpu_exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:4.4.1-4.6.0-ubuntu22.04
+    container_name: ppoalgo_gpu_exporter
+    ports:
+      - "9400:9400"
+    networks:
+      - ppoalgo_network
+    restart: unless-stopped
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - DISABLE_STARTUP_VALIDATE=true
+
+networks:
+  ppoalgo_network:
+    driver: bridge
+
+volumes:
+  postgres_data_turbo:
+  nvidia_cache:
+  numba_cache:
+  prometheus_data:

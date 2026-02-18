@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>META Plan - Meta-Learning Trading R&D Blueprint</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a28;
+            --bg-card-hover: #222236;
+            --border: #2a2a40;
+            --border-glow: #4f46e5;
+            --text-primary: #f0f0f5;
+            --text-secondary: #9898b0;
+            --text-muted: #686880;
+            --accent-blue: #6366f1;
+            --accent-green: #22c55e;
+            --accent-orange: #f59e0b;
+            --accent-red: #ef4444;
+            --accent-purple: #a855f7;
+            --accent-cyan: #06b6d4;
+            --gradient-1: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+            --gradient-2: linear-gradient(135deg, #06b6d4 0%, #22c55e 100%);
+            --gradient-3: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(ellipse 900px 650px at 15% 8%, rgba(99,102,241,0.08) 0%, transparent 60%),
+                radial-gradient(ellipse 700px 540px at 78% 78%, rgba(168,85,247,0.06) 0%, transparent 60%),
+                radial-gradient(ellipse 560px 420px at 55% 38%, rgba(6,182,212,0.04) 0%, transparent 60%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero {
+            padding: 80px 0 56px;
+            text-align: center;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px;
+            background: rgba(99,102,241,0.12);
+            border: 1px solid rgba(99,102,241,0.25);
+            border-radius: 100px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--accent-blue);
+            margin-bottom: 24px;
+            letter-spacing: 0.5px;
+        }
+
+        .hero h1 {
+            font-size: clamp(34px, 5vw, 62px);
+            font-weight: 900;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 14px;
+            letter-spacing: -1px;
+        }
+
+        .hero p {
+            font-size: 18px;
+            color: var(--text-secondary);
+            max-width: 840px;
+            margin: 0 auto 36px;
+        }
+
+        .hero-stats {
+            display: flex;
+            justify-content: center;
+            gap: 42px;
+            flex-wrap: wrap;
+        }
+
+        .hero-stat { text-align: center; }
+
+        .hero-stat .value {
+            font-size: 30px;
+            font-weight: 800;
+            background: var(--gradient-2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-stat .label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 4px;
+        }
+
+        .divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border), transparent);
+            margin: 38px 0;
+        }
+
+        .section { padding: 54px 0; }
+
+        .section-header { margin-bottom: 32px; }
+
+        .section-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.4px;
+            color: var(--accent-blue);
+            margin-bottom: 12px;
+        }
+
+        .section-title {
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: -0.4px;
+            margin-bottom: 12px;
+        }
+
+        .section-desc {
+            font-size: 16px;
+            color: var(--text-secondary);
+            max-width: 860px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 18px;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: var(--border-glow);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 34px rgba(99,102,241,0.1);
+        }
+
+        .card h3 {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .card p {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 8px;
+            padding: 4px 10px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .chip-blue { background: rgba(99,102,241,0.12); color: var(--accent-blue); }
+        .chip-green { background: rgba(34,197,94,0.12); color: var(--accent-green); }
+        .chip-orange { background: rgba(245,158,11,0.12); color: var(--accent-orange); }
+        .chip-purple { background: rgba(168,85,247,0.12); color: var(--accent-purple); }
+        .chip-cyan { background: rgba(6,182,212,0.12); color: var(--accent-cyan); }
+
+        .table-wrapper {
+            overflow-x: auto;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+
+        thead th {
+            padding: 14px 16px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            background: rgba(255,255,255,0.02);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        tbody td {
+            padding: 13px 16px;
+            font-size: 13px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            vertical-align: top;
+        }
+
+        tbody tr:last-child td { border-bottom: none; }
+        tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+        .deadline-cell {
+            color: var(--accent-orange);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .start-cell {
+            color: var(--accent-cyan);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .gate-cell {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        .code-block {
+            background: rgba(0,0,0,0.38);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px;
+            padding: 16px 18px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            line-height: 1.7;
+            overflow-x: auto;
+            color: var(--text-secondary);
+            white-space: pre;
+        }
+
+        .code-title {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: var(--accent-blue);
+        }
+
+        .prompt-id {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .callout {
+            background: rgba(99,102,241,0.08);
+            border: 1px solid rgba(99,102,241,0.22);
+            border-radius: 12px;
+            padding: 16px 18px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .callout strong { color: var(--text-primary); }
+
+        .footer {
+            text-align: center;
+            padding: 56px 0;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 768px) {
+            .hero { padding: 50px 0 34px; }
+            .section { padding: 40px 0; }
+            .grid-2 { grid-template-columns: 1fr; }
+            .hero-stats { gap: 24px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <section class="hero">
+        <div class="hero-badge">🧠 META-LEARNING EXECUTION PLAN</div>
+        <h1>/META</h1>
+        <p>Institutional R&amp;D blueprint for building a system that learns how to build trading learners from <strong>5 years of 1-minute data across 12,000 stocks</strong>.</p>
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <div class="value">5.9T</div>
+                <div class="label">Rows (Approx)</div>
+            </div>
+            <div class="hero-stat">
+                <div class="value">16 Weeks</div>
+                <div class="label">Initial Program</div>
+            </div>
+            <div class="hero-stat">
+                <div class="value">7 Phases</div>
+                <div class="label">Delivery Gates</div>
+            </div>
+            <div class="hero-stat">
+                <div class="value">Jun 26, 2026</div>
+                <div class="label">Pilot Deadline</div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">🎯 Program Objective</div>
+            <h2 class="section-title">What The System Must Learn</h2>
+            <p class="section-desc">Primary objective: learn reusable model-building policies, not one-off predictors. Start with supervised target and strict research gates before expanding to full meta-learning loops.</p>
+        </div>
+
+        <div class="grid-3">
+            <div class="card">
+                <h3>Target Definition</h3>
+                <p class="mono">P(return &gt; X in next Y minutes)</p>
+                <div class="chip-row">
+                    <span class="chip chip-blue">X = 10-30 bps</span>
+                    <span class="chip chip-cyan">Y = 5-30 min</span>
+                    <span class="chip chip-green">Long/Flat baseline</span>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Risk Goal</h3>
+                <p>Maximize risk-adjusted return under slippage and liquidity constraints, with stable performance across market regimes.</p>
+                <div class="chip-row">
+                    <span class="chip chip-orange">Sharpe</span>
+                    <span class="chip chip-purple">Max DD</span>
+                    <span class="chip chip-green">Turnover Control</span>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Meta Goal</h3>
+                <p>Train a controller that selects feature families, model class, and hyperparameters based on current market regime and data quality.</p>
+                <div class="chip-row">
+                    <span class="chip chip-blue">AutoML Loop</span>
+                    <span class="chip chip-cyan">Regime-Aware</span>
+                    <span class="chip chip-green">Walk-Forward Safe</span>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">📅 Exact Timeline</div>
+            <h2 class="section-title">Deadlines And Phase Gates (ET)</h2>
+            <p class="section-desc">Program start fixed at <strong>Tuesday, February 17, 2026</strong>. Each phase has hard deadline at <span class="mono">18:00 ET</span> on listed date. Daily sync at <span class="mono">09:30 ET</span>, weekly review Fridays <span class="mono">16:00 ET</span>.</p>
+        </div>
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Phase</th>
+                        <th>Start</th>
+                        <th>Deadline</th>
+                        <th>Deliverables</th>
+                        <th>Gate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>0. Scoping + Contracts</strong></td>
+                        <td class="start-cell">Feb 17, 2026 10:00 ET</td>
+                        <td class="deadline-cell">Feb 20, 2026 18:00 ET</td>
+                        <td>Data schema freeze, target spec v1, bias checklist, compute budget.</td>
+                        <td class="gate-cell">Scope Signed</td>
+                    </tr>
+                    <tr>
+                        <td><strong>1. Data Engine</strong></td>
+                        <td class="start-cell">Feb 23, 2026 09:30 ET</td>
+                        <td class="deadline-cell">Mar 13, 2026 18:00 ET</td>
+                        <td>Parquet lake, partitioning, corp-action adjustment, halt filters, audit metrics.</td>
+                        <td class="gate-cell">Data QA &gt; 99.5%</td>
+                    </tr>
+                    <tr>
+                        <td><strong>2. Feature Factory</strong></td>
+                        <td class="start-cell">Mar 16, 2026 09:30 ET</td>
+                        <td class="deadline-cell">Apr 03, 2026 18:00 ET</td>
+                        <td>Microstructure, cross-sectional, regime features, feature registry.</td>
+                        <td class="gate-cell">Feature Drift Baseline</td>
+                    </tr>
+                    <tr>
+                        <td><strong>3. Baseline Models</strong></td>
+                        <td class="start-cell">Apr 06, 2026 09:30 ET</td>
+                        <td class="deadline-cell">Apr 17, 2026 18:00 ET</td>
+                        <td>GBM/linear/RF baselines, first walk-forward report, feature importance.</td>
+                        <td class="gate-cell">Signal Exists</td>
+                    </tr>
+                    <tr>
+                        <td><strong>4. Meta-Learner v1</strong></td>
+                        <td class="start-cell">Apr 20, 2026 09:30 ET</td>
+                        <td class="deadline-cell">May 22, 2026 18:00 ET</td>
+                        <td>Controller for model+feature search, embedding store, policy logs.</td>
+                        <td class="gate-cell">Outperforms Best Baseline</td>
+                    </tr>
+                    <tr>
+                        <td><strong>5. Validation + Backtest</strong></td>
+                        <td class="start-cell">May 25, 2026 09:30 ET</td>
+                        <td class="deadline-cell">Jun 12, 2026 18:00 ET</td>
+                        <td>Event-driven sim, slippage/latency model, regime holdout stress tests.</td>
+                        <td class="gate-cell">No Leakage, Stable OOS</td>
+                    </tr>
+                    <tr>
+                        <td><strong>6. Pilot Deployment</strong></td>
+                        <td class="start-cell">Jun 15, 2026 09:30 ET</td>
+                        <td class="deadline-cell">Jun 26, 2026 18:00 ET</td>
+                        <td>Paper-trading runbook, live monitoring dashboard, rollback plan.</td>
+                        <td class="gate-cell">Pilot Go/No-Go</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">🧰 Technologies</div>
+            <h2 class="section-title">Stack By Layer</h2>
+            <p class="section-desc">Prioritize systems that scale to trillions of rows with reproducible experiments and strict anti-leakage controls.</p>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <h3>Data + Storage Layer</h3>
+                <div class="chip-row">
+                    <span class="chip chip-blue">Parquet</span>
+                    <span class="chip chip-cyan">DuckDB</span>
+                    <span class="chip chip-purple">ClickHouse</span>
+                    <span class="chip chip-green">Delta/Iceberg (optional)</span>
+                </div>
+                <p style="margin-top: 10px;">Partition by <span class="mono">date / symbol bucket</span>, corporate-action adjustment pipelines, immutable raw zone + curated zone.</p>
+            </div>
+            <div class="card">
+                <h3>Distributed Compute</h3>
+                <div class="chip-row">
+                    <span class="chip chip-blue">Ray</span>
+                    <span class="chip chip-purple">Spark</span>
+                    <span class="chip chip-cyan">Dask (optional)</span>
+                    <span class="chip chip-green">Kubernetes</span>
+                </div>
+                <p style="margin-top: 10px;">Ray for experiment orchestration and model search. Spark for heavy ETL and historical rebuilds.</p>
+            </div>
+            <div class="card">
+                <h3>Modeling + Meta-Learning</h3>
+                <div class="chip-row">
+                    <span class="chip chip-orange">LightGBM/XGBoost</span>
+                    <span class="chip chip-blue">scikit-learn</span>
+                    <span class="chip chip-purple">PyTorch</span>
+                    <span class="chip chip-cyan">Optuna</span>
+                </div>
+                <p style="margin-top: 10px;">Baselines first; then encoder + controller policy (AutoML-style search / representation learning / RL policy).</p>
+            </div>
+            <div class="card">
+                <h3>Validation + MLOps</h3>
+                <div class="chip-row">
+                    <span class="chip chip-green">MLflow</span>
+                    <span class="chip chip-blue">Weights &amp; Biases</span>
+                    <span class="chip chip-orange">Great Expectations</span>
+                    <span class="chip chip-purple">Prefect/Airflow</span>
+                </div>
+                <p style="margin-top: 10px;">Experiment tracking, lineage, data tests, and reproducible walk-forward pipelines.</p>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">🧪 Pseudocode</div>
+            <h2 class="section-title">Core Pipeline Skeletons</h2>
+            <p class="section-desc">Reference pseudocode for implementation-level planning. These blocks align with the deadlines above.</p>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="code-title">1) Data Ingestion + Normalization</div>
+                <div class="code-block">for day in trading_calendar(start, end):
+  batch = load_raw_minute_data(day)
+  batch = apply_corporate_actions(batch)
+  batch = remove_halts_and_bad_ticks(batch)
+  batch = align_to_exchange_clock(batch)
+  write_parquet(partition=[day, symbol_bucket], data=batch)
+
+quality = run_data_quality_checks(day)
+if quality.fail_rate > 0.5%:
+  raise PipelineHalt(day)</div>
+            </div>
+
+            <div class="card">
+                <div class="code-title">2) Feature Factory</div>
+                <div class="code-block">def build_features(df):
+  f = {}
+  f["ret_1m"] = pct_change(df.close, 1)
+  f["ret_5m"] = pct_change(df.close, 5)
+  f["vwap_dev"] = (df.close - rolling_vwap(df, 30)) / df.close
+  f["vol_imbalance"] = (df.buy_vol - df.sell_vol) / (df.total_vol + 1e-9)
+  f["range_compression"] = rolling_std(df.high - df.low, 20)
+  f["rel_strength"] = cross_section_rank(df.ret_5m)
+  f["regime_vol"] = regime_classifier(df.market_features)
+  return f</div>
+            </div>
+
+            <div class="card">
+                <div class="code-title">3) Baseline Walk-Forward Loop</div>
+                <div class="code-block">for split in rolling_splits(train=12m, valid=2m, test=1m):
+  X_train, y_train = make_dataset(split.train)
+  X_valid, y_valid = make_dataset(split.valid)
+  X_test,  y_test  = make_dataset(split.test)
+
+  model = LightGBM(params=baseline_params)
+  model.fit(X_train, y_train, eval_set=[(X_valid, y_valid)])
+
+  preds = model.predict_proba(X_test)
+  metrics = evaluate(preds, y_test, costs=slippage_model)
+  log_metrics(split.id, metrics)
+
+report = aggregate_oos_metrics()</div>
+            </div>
+
+            <div class="card">
+                <div class="code-title">4) Meta-Learner Controller</div>
+                <div class="code-block">policy = init_controller()
+search_space = {
+  feature_groups, model_family, hyperparams, objective_weights
+}
+
+for episode in range(E):
+  config = policy.sample(search_space, context=current_regime)
+  score = run_walk_forward(config)
+  reward = risk_adjusted_reward(score)
+  policy.update(config, reward)
+  store_episode(episode, config, reward)
+
+best_config = policy.best()
+freeze_for_backtest(best_config)</div>
+            </div>
+
+            <div class="card">
+                <div class="code-title">5) Event-Driven Backtest</div>
+                <div class="code-block">engine = BacktestEngine(latency_ms=25, fee_bps=1.2)
+portfolio = Portfolio(max_positions=50, max_sector_weight=0.2)
+
+for event in market_event_stream(test_period):
+  signal = signal_model(event.features)
+  order  = risk_layer.translate(signal, portfolio.state)
+  fill   = engine.simulate_fill(order, book_state=event.book)
+  portfolio.update(fill)
+
+results = compute_pnl_stats(portfolio.history)
+assert no_leakage(results.audit)</div>
+            </div>
+
+            <div class="card">
+                <div class="code-title">6) First Milestone (Top-50 Liquid Stocks)</div>
+                <div class="code-block">universe = top_liquid_stocks(n=50)
+objective = "P(return_5m > 0.15%)"
+
+dataset = build_dataset(universe, window="2021-01-01..2025-12-31")
+features = build_features(dataset)
+model = train_lightgbm(features, objective)
+wf_metrics = walk_forward_validate(model, retrain="weekly")
+
+if wf_metrics.sharpe_oos &lt; threshold:
+  stop_and_reframe_hypothesis()
+else:
+  scale_universe(50 -> 500 -> 2000 -> 12000)</div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">🤖 Claude Prompt Pack</div>
+            <h2 class="section-title">Exact Prompts For Claude Code Opus 4.6</h2>
+            <p class="section-desc">Copy-paste these prompts in order. Run Prompt 0 first, then prompts 1 to 7 sequentially. Each prompt is designed to produce concrete code, tests, and artifacts.</p>
+        </div>
+
+        <div class="callout">
+            <strong>Usage rule:</strong> do not batch prompts. Wait for completion of each prompt, review output, then run the next prompt.
+        </div>
+
+        <div class="grid-2" style="margin-top: 18px;">
+            <div class="card">
+                <div class="prompt-id">Prompt 0 • Bootstrap</div>
+                <div class="code-block">You are Claude Code Opus 4.6 operating in a production quant-research repository.
+
+Goal:
+Build a meta-learning trading R&D pipeline for 5 years of 1-minute data across 12,000 stocks.
+
+Required behavior:
+1) Create implementation plan aligned to this timeline:
+- Phase 0 deadline: 2026-02-20 18:00 ET
+- Phase 1 deadline: 2026-03-13 18:00 ET
+- Phase 2 deadline: 2026-04-03 18:00 ET
+- Phase 3 deadline: 2026-04-17 18:00 ET
+- Phase 4 deadline: 2026-05-22 18:00 ET
+- Phase 5 deadline: 2026-06-12 18:00 ET
+- Phase 6 deadline: 2026-06-26 18:00 ET
+
+2) Enforce anti-leakage constraints:
+- point-in-time universe
+- no future data in features
+- survivorship-safe symbol handling
+
+3) Output:
+- proposed folder structure
+- component interfaces
+- immediate TODO checklist
+- first executable milestone: top 50 liquid stocks, 5-minute horizon classifier.
+
+Do not provide generic advice. Write concrete implementation scaffolding.</div>
+            </div>
+
+            <div class="card">
+                <div class="prompt-id">Prompt 1 • Data Engine</div>
+                <div class="code-block">Implement Phase 1 Data Engine now.
+
+Requirements:
+- Input: raw 1-minute OHLCV data for 12,000 stocks, 5 years.
+- Build raw and curated data zones in Parquet.
+- Add corporate action adjustment pipeline.
+- Add trading halt and bad-tick filters.
+- Add time alignment to exchange calendar.
+- Partition strategy: date + symbol_bucket.
+
+Deliverables:
+1) Python package modules for ingestion and normalization.
+2) Data quality checks with fail thresholds.
+3) CLI command:
+   python -m pipeline.ingest --start 2021-01-01 --end 2025-12-31
+4) Unit tests for adjustment correctness and missing-bar handling.
+5) Data contract markdown file with schema and invariants.
+
+Return full file diffs and test commands.</div>
+            </div>
+
+            <div class="card">
+                <div class="prompt-id">Prompt 2 • Feature Factory</div>
+                <div class="code-block">Implement Phase 2 Feature Factory.
+
+Feature groups required:
+- microstructure: ret_1m, ret_5m, vwap_dev, vol_imbalance, range_compression
+- cross-sectional: relative strength rank, sector-relative z-scores, breadth context
+- regime: intraday volatility state, liquidity state
+
+Requirements:
+1) Feature registry (metadata + formula + lookback window).
+2) Strictly causal computation (no leakage).
+3) Feature persistence to Parquet with version tag.
+4) Drift report script comparing train vs test feature distributions.
+5) Tests proving no forward-looking window use.
+
+Also generate:
+- docs/features.md
+- example notebook or script that builds features for AAPL week sample.</div>
+            </div>
+
+            <div class="card">
+                <div class="prompt-id">Prompt 3 • Baseline Models</div>
+                <div class="code-block">Implement Phase 3 baseline modeling pipeline.
+
+Target:
+P(return_5m &gt; 0.15%)
+
+Models:
+- LightGBM
+- Regularized Logistic Regression
+- Random Forest
+
+Validation:
+- walk-forward splits (12m train, 2m validation, 1m test)
+- weekly retraining option
+- transaction-cost-aware metrics
+
+Outputs:
+1) train_baselines.py script
+2) model config YAMLs
+3) evaluation report with OOS metrics and feature importance
+4) experiment tracking integration (MLflow or W&amp;B)
+5) tests for split logic correctness
+
+Return reproducible commands to rerun full baseline experiment.</div>
+            </div>
+
+            <div class="card">
+                <div class="prompt-id">Prompt 4 • Meta-Learner</div>
+                <div class="code-block">Implement Phase 4 meta-learning controller.
+
+Controller scope:
+- choose feature subsets
+- choose model family
+- choose hyperparameters
+- optimize risk-adjusted objective
+
+Approach:
+- AutoML-style search first (Optuna/Ray Tune)
+- prepare hooks for representation-learning extension
+
+Requirements:
+1) meta_controller module with episode logging.
+2) search space definitions in config.
+3) reward function using OOS Sharpe, drawdown, turnover penalty.
+4) checkpointing and resume support.
+5) compare best meta-config vs best baseline in one report.
+
+Do not skip auditability. Every episode must be reproducible from logs.</div>
+            </div>
+
+            <div class="card">
+                <div class="prompt-id">Prompt 5 • Backtest Engine</div>
+                <div class="code-block">Implement Phase 5 event-driven backtesting.
+
+Must include:
+- order simulation with latency and slippage
+- fees and spread assumptions
+- portfolio constraints (max positions, sector cap, position sizing)
+- deterministic replay mode
+
+Required outputs:
+1) event-driven simulator package
+2) config file for market assumptions
+3) integration with model signals
+4) risk report: Sharpe, max drawdown, turnover, exposure
+5) validation tests that catch leakage and execution-timing errors
+
+Add command:
+python -m backtest.run --config configs/backtest/pilot.yaml</div>
+            </div>
+
+            <div class="card">
+                <div class="prompt-id">Prompt 6 • Monitoring + Dashboard</div>
+                <div class="code-block">Implement Phase 6 monitoring and evaluation dashboard.
+
+Dashboard requirements:
+- latest experiment leaderboard
+- walk-forward regime breakdown
+- model drift and feature drift panels
+- backtest vs paper-trade reconciliation panel
+- alerting thresholds (drawdown, latency, missing data)
+
+Engineering requirements:
+1) API endpoints serving experiment and risk summaries.
+2) frontend dashboard pages/components.
+3) scheduled jobs to refresh metrics.
+4) runbook docs for incident response.
+
+Return code + setup steps + screenshots or generated HTML pages.</div>
+            </div>
+
+            <div class="card">
+                <div class="prompt-id">Prompt 7 • Final Production Gate</div>
+                <div class="code-block">Prepare final production-readiness gate.
+
+Tasks:
+1) End-to-end test from raw data -> features -> model -> meta-controller -> backtest report.
+2) Generate acceptance checklist:
+   - no leakage
+   - reproducibility
+   - OOS stability across 3 market regimes
+   - rollback plan
+3) Create paper-trading pilot config and launch script.
+4) Produce final summary report with:
+   - achieved metrics
+   - known risks
+   - next 30/60/90 day roadmap.
+
+Output only concrete implementation artifacts and execution commands.</div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div class="divider"></div>
+
+<div class="container">
+    <section class="section">
+        <div class="section-header">
+            <div class="section-label">✅ Execution Notes</div>
+            <h2 class="section-title">Non-Negotiable Controls</h2>
+        </div>
+
+        <div class="callout">
+            <strong>Leakage and survivorship controls are mandatory:</strong> point-in-time symbol universe, delisted names retained, feature windows strictly left-closed/right-open, and every experiment versioned with data snapshot hash.
+        </div>
+
+        <div class="grid-3" style="margin-top: 18px;">
+            <div class="card">
+                <h3>Failure Condition</h3>
+                <p>If baseline models fail OOS stability, pause meta-learning and revise targets/features before expanding scale.</p>
+            </div>
+            <div class="card">
+                <h3>Success Condition</h3>
+                <p>Meta-learner must beat best baseline on OOS risk-adjusted metrics across at least 3 regime splits.</p>
+            </div>
+            <div class="card">
+                <h3>Go-Live Condition</h3>
+                <p>Pass paper-trading pilot with monitored drawdown limits and deterministic replay parity.</p>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div class="container">
+    <footer class="footer">
+        META build plan generated for PPOAlgo research workflow • Timeline anchor: February 17, 2026 (ET)
+    </footer>
+</div>
+
+</body>
+</html>

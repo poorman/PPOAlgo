@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Try importing psycopg2 for PostgreSQL
 try:
     import psycopg2
-    from psycopg2.extras import Json
+    from psycopg2.extras import Json, execute_values
     POSTGRES_AVAILABLE = True
 except ImportError:
     POSTGRES_AVAILABLE = False
@@ -117,11 +117,25 @@ def ensure_tables():
             # Add smart_timing column to optimizer_jobs if it doesn't exist (migration)
             try:
                 cur.execute("""
-                    ALTER TABLE optimizer_jobs 
+                    ALTER TABLE optimizer_jobs
                     ADD COLUMN IF NOT EXISTS smart_timing BOOLEAN DEFAULT FALSE;
                 """)
             except Exception as e:
                 logger.debug(f"Column might already exist: {e}")
+
+            # Add algo and data_source columns to optimizer_jobs (migration)
+            cur.execute("""
+                ALTER TABLE optimizer_jobs
+                ADD COLUMN IF NOT EXISTS algo VARCHAR(50) DEFAULT 'default';
+            """)
+            cur.execute("""
+                ALTER TABLE optimizer_jobs
+                ADD COLUMN IF NOT EXISTS data_source VARCHAR(50) DEFAULT 'widesurf';
+            """)
+            cur.execute("""
+                ALTER TABLE optimizer_jobs
+                ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+            """)
             
             # Create index for faster lookups
             cur.execute("""
@@ -218,9 +232,9 @@ def save_job_to_db(job_id: str, config):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO optimizer_jobs 
-                (job_id, symbols, start_date, end_date, capital, n_trials, optimization_metric, smart_timing)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO optimizer_jobs
+                (job_id, symbols, start_date, end_date, capital, n_trials, optimization_metric, smart_timing, algo, data_source)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (job_id) DO NOTHING
             """, (
                 job_id,
@@ -230,7 +244,9 @@ def save_job_to_db(job_id: str, config):
                 config.capital,
                 config.n_trials,
                 config.optimization_metric,
-                config.smart_timing
+                config.smart_timing,
+                getattr(config, 'algo', 'default'),
+                getattr(config, 'data_source', 'widesurf'),
             ))
         conn.commit()
         logger.info(f"Saved job {job_id} to database")
@@ -310,9 +326,14 @@ def update_job_status(job_id: str, status: str):
     
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE optimizer_jobs SET status = %s WHERE job_id = %s
-            """, (status, job_id))
+            if status == "completed":
+                cur.execute("""
+                    UPDATE optimizer_jobs SET status = %s, completed_at = NOW() WHERE job_id = %s
+                """, (status, job_id))
+            else:
+                cur.execute("""
+                    UPDATE optimizer_jobs SET status = %s WHERE job_id = %s
+                """, (status, job_id))
         conn.commit()
     except Exception as e:
         logger.error(f"Failed to update job status: {e}")
@@ -344,6 +365,108 @@ def get_results_from_db(symbol: str = None) -> List[dict]:
             return [row[0] for row in rows if row[0]]
     except Exception as e:
         logger.error(f"Failed to get results: {e}")
+        return []
+    finally:
+        if conn:
+            release_db_conn(conn)
+
+
+# ============================================================================
+# JOB LOG QUERIES
+# ============================================================================
+
+def get_jobs_with_summary(limit: int = 100) -> list:
+    """Get all optimizer jobs with aggregated result metrics."""
+    conn = get_db_conn()
+    if not conn:
+        return []
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT j.job_id, j.symbols, j.start_date, j.end_date, j.capital,
+                       j.n_trials, j.optimization_metric, j.status, j.smart_timing,
+                       j.created_at, j.algo, j.data_source,
+                       COUNT(r.id) AS result_count,
+                       AVG((r.full_result->'metrics'->>'total_return')::numeric) AS avg_return,
+                       AVG((r.full_result->'metrics'->>'win_rate')::numeric) AS avg_win_rate,
+                       EXTRACT(EPOCH FROM (j.completed_at - j.created_at)) AS duration_seconds
+                FROM optimizer_jobs j
+                LEFT JOIN optimizer_results r ON j.job_id = r.job_id
+                GROUP BY j.id
+                ORDER BY j.created_at DESC
+                LIMIT %s
+            """, (limit,))
+            columns = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+            results = []
+            for row in rows:
+                d = dict(zip(columns, row))
+                if d.get("created_at"):
+                    d["created_at"] = d["created_at"].isoformat()
+                if d.get("start_date"):
+                    d["start_date"] = str(d["start_date"])
+                if d.get("end_date"):
+                    d["end_date"] = str(d["end_date"])
+                # symbols is a Postgres TEXT[] — already comes back as list
+                for key in ("capital", "avg_return", "avg_win_rate", "duration_seconds"):
+                    if d.get(key) is not None:
+                        try:
+                            d[key] = float(d[key])
+                        except (ValueError, TypeError):
+                            pass
+                results.append(d)
+            return results
+    except Exception as e:
+        logger.error(f"Failed to get jobs summary: {e}")
+        return []
+    finally:
+        if conn:
+            release_db_conn(conn)
+
+
+def get_job_details(job_id: str) -> list:
+    """Get all per-symbol results for a specific job."""
+    conn = get_db_conn()
+    if not conn:
+        return []
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT r.symbol,
+                       r.buy_trigger_pct, r.sell_trigger_pct, r.compound,
+                       r.score, r.optimal_buy_time_cdt,
+                       r.full_result->'metrics'->>'total_return' AS total_return,
+                       r.full_result->'metrics'->>'win_rate' AS win_rate,
+                       r.full_result->'metrics'->>'sharpe' AS sharpe,
+                       r.full_result->'metrics'->>'final_equity' AS final_equity,
+                       r.full_result->'metrics'->>'total_trades' AS total_trades,
+                       r.full_result->>'duration_seconds' AS duration_seconds,
+                       r.full_result->>'method' AS method,
+                       r.full_result->>'algo' AS algo,
+                       r.full_result->>'data_source' AS data_source
+                FROM optimizer_results r
+                WHERE r.job_id = %s
+                ORDER BY (r.full_result->'metrics'->>'total_return')::numeric DESC NULLS LAST
+            """, (job_id,))
+            columns = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+            results = []
+            for row in rows:
+                d = dict(zip(columns, row))
+                for key in ("buy_trigger_pct", "sell_trigger_pct", "score",
+                            "total_return", "win_rate", "sharpe",
+                            "final_equity", "total_trades", "duration_seconds"):
+                    if d.get(key) is not None:
+                        try:
+                            d[key] = float(d[key])
+                        except (ValueError, TypeError):
+                            pass
+                results.append(d)
+            return results
+    except Exception as e:
+        logger.error(f"Failed to get job details for {job_id}: {e}")
         return []
     finally:
         if conn:
@@ -424,7 +547,66 @@ def save_keyword_config(keyword: str, api_url: str, description: str = None):
         logger.error(f"Failed to save keyword config: {e}")
         return False
     finally:
-        conn.close()
+        if conn:
+            release_db_conn(conn)
+
+
+def bulk_save_prices(symbol: str, timeframe: str, bars: list):
+    """Save multiple price bars to the cache database using optimized bulk insertion."""
+    if not bars:
+        return
+    
+    conn = get_db_conn()
+    if not conn:
+        return
+        
+    try:
+        # Prepare data for execute_values
+        data = []
+        for bar in bars:
+            bar_time_str = bar.get("t", "")
+            if not bar_time_str:
+                continue
+            
+            # Parse date from timestamp (first 10 chars of ISO string)
+            bar_date = bar_time_str[:10]
+            
+            data.append((
+                symbol.upper(),
+                timeframe,
+                bar_date,
+                bar_time_str,
+                float(bar.get("o", 0)),
+                float(bar.get("h", 0)),
+                float(bar.get("l", 0)),
+                float(bar.get("c", 0)),
+                int(bar.get("v", 0)) if bar.get("v") else 0,
+                float(bar.get("vw", 0)) if bar.get("vw") else None
+            ))
+
+        with conn.cursor() as cur:
+            # Use execute_values for efficient bulk insertion
+            execute_values(cur, """
+                INSERT INTO price_cache 
+                (symbol, timeframe, bar_date, bar_timestamp, open, high, low, close, volume, vwap)
+                VALUES %s
+                ON CONFLICT (symbol, timeframe, bar_date, bar_timestamp) DO UPDATE SET
+                open = EXCLUDED.open,
+                high = EXCLUDED.high,
+                low = EXCLUDED.low,
+                close = EXCLUDED.close,
+                volume = EXCLUDED.volume,
+                vwap = EXCLUDED.vwap
+            """, data)
+        
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Failed bulk save: {e}")
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            release_db_conn(conn)
 
 
 def save_all_keyword_configs(configs: dict) -> bool:

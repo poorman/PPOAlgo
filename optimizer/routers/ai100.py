@@ -8,7 +8,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 
-from database import get_db_conn
+from database import get_db_conn, release_db_conn
 
 logger = logging.getLogger(__name__)
 

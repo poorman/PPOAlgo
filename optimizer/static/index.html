@@ -159,6 +159,17 @@
             cursor: not-allowed;
         }
 
+        .btn-secondary {
+            background: rgba(29, 155, 240, 0.1);
+            color: var(--accent);
+            border: 1px solid rgba(29, 155, 240, 0.3);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(29, 155, 240, 0.2);
+            border-color: var(--accent);
+        }
+
         .results-container {
             display: flex;
             flex-direction: column;
@@ -539,6 +550,41 @@
             border-bottom: 6px solid var(--border);
         }
 
+        .clear-all-cache-progress {
+            display: none;
+            margin-top: 6px;
+            padding: 7px 8px;
+            border-radius: 8px;
+            border: 1px solid rgba(29, 155, 240, 0.3);
+            background: rgba(29, 155, 240, 0.08);
+        }
+
+        .clear-all-cache-progress.active {
+            display: block;
+        }
+
+        .clear-all-cache-progress-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.68rem;
+            color: var(--text-secondary);
+            margin-bottom: 5px;
+            gap: 8px;
+        }
+
+        .clear-all-cache-progress-row span:first-child {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 185px;
+        }
+
+        .clear-all-cache-progress .progress-bar {
+            margin: 0;
+            height: 5px;
+        }
+
         /* History Panel Styles */
         .history-panel {
             height: fit-content;
@@ -685,6 +731,7 @@
             transition: all 0.2s;
             position: relative;
         }
+
         .sort-btn[title]:hover::after {
             content: attr(title);
             position: absolute;
@@ -1070,6 +1117,15 @@
                     title="Clear ALL cached price data for every symbol">
                     🗑️ Clear All Cache
                 </button>
+                <div id="clear-all-cache-progress" class="clear-all-cache-progress">
+                    <div class="clear-all-cache-progress-row">
+                        <span id="clear-all-cache-status">Preparing cache clear...</span>
+                        <span id="clear-all-cache-percent">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div id="clear-all-cache-fill" class="progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                </div>
                 <div
                     style="margin-top: 8px; padding: 10px; background: rgba(29, 155, 240, 0.1); border-radius: 8px; border-left: 3px solid var(--accent);">
                     <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px;">Quick Keywords:
@@ -1134,6 +1190,7 @@
                 <label>📊 API Historic Data Source</label>
                 <select id="data-source">
                     <option value="widesurf" selected>Widesurf API</option>
+                    <option value="widesurf_v2">Widesurf API V2</option>
                     <option value="alpaca">Alpaca API</option>
                 </select>
                 <small style="color: var(--text-secondary); font-size: 0.7rem; margin-top: 0.25rem; display: block;">
@@ -1161,11 +1218,14 @@
             <div class="form-group" id="timing-approach-group"
                 style="display: none; margin-left: 1rem; border-left: 2px solid #444; padding-left: 0.75rem;">
                 <label for="timing-approach" style="margin-bottom: 0.5rem; font-size: 0.9em;">Timing Approach:</label>
-                <select id="timing-approach" style="width: 100%; padding: 0.25rem;" onchange="updateTimingDescription()">
+                <select id="timing-approach" style="width: 100%; padding: 0.25rem;"
+                    onchange="updateTimingDescription()">
                     <option value="sequential">Sequential (Faster) - Find timing after triggers</option>
                     <option value="joint">Joint (Better) - Optimize all parameters together</option>
                 </select>
-                <div id="timing-description" style="margin-top: 0.5rem; padding: 8px 10px; background: rgba(29,155,240,0.08); border-left: 3px solid var(--accent); border-radius: 4px; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.5;"></div>
+                <div id="timing-description"
+                    style="margin-top: 0.5rem; padding: 8px 10px; background: rgba(29,155,240,0.08); border-left: 3px solid var(--accent); border-radius: 4px; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.5;">
+                </div>
                 <div style="display: flex; align-items: center; gap: 0.4rem; margin-top: 0.25rem;">
                     <small style="color: #666; font-size: 0.7em;">
                         Sequential: ~30 sec faster | Joint: potentially better results
@@ -1246,9 +1306,15 @@
                 </div>
             </div>
 
-            <button class="btn btn-primary" id="start-btn" onclick="startOptimization()">
-                Start Optimization
-            </button>
+            <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                <button class="btn btn-primary" id="start-btn" onclick="startOptimization(false)" style="width: 100%;">
+                    Start Optimization
+                </button>
+                <button class="btn btn-secondary" id="partial-btn" onclick="startOptimization(true)"
+                    style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                    🧩 Partial Optimization
+                </button>
+            </div>
 
             <div class="connection-status">
                 <div class="connection-dot" id="ws-status"></div>
@@ -1263,6 +1329,7 @@
                 <button class="log-tab" id="tab-api-tester" onclick="switchTopTab('api-tester')">API Tester</button>
                 <button class="log-tab" id="tab-keywords" onclick="switchTopTab('keywords')">Keywords</button>
                 <button class="log-tab" id="tab-api-keys" onclick="switchTopTab('api-keys')">API Keys</button>
+                <button class="log-tab" id="tab-logs" onclick="switchTopTab('logs')">Logs</button>
             </div>
 
             <!-- API Tester Panel -->
@@ -1625,6 +1692,26 @@
                             </div>
                         </div>
                     </div>
+
+                    <div
+                        style="background: var(--bg-card); padding: 1.25rem; border-radius: 12px; border: 1px solid var(--border);">
+                        <h4
+                            style="color: var(--accent); margin-bottom: 1rem; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <span>🚀</span> Widesurf API V2
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+                            <div class="form-group">
+                                <label>API Key</label>
+                                <input type="password" id="api-key-widesurf-v2-secret" class="form-input"
+                                    placeholder="Widesurf V2 API Key">
+                            </div>
+                            <div class="form-group">
+                                <label>Base Endpoint</label>
+                                <input type="text" id="api-key-widesurf-v2-url" class="form-input"
+                                    placeholder="http://10.0.0.94:8090">
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
@@ -1638,6 +1725,52 @@
                 </div>
 
                 <div id="api-keys-status" style="margin-top: 1rem; padding: 0.5rem; border-radius: 6px; display: none;">
+                </div>
+            </div>
+
+            <!-- Logs Panel -->
+            <div id="logs-panel"
+                style="display: none; background: var(--card-bg); border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem; max-height: 75vh; overflow-y: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 style="color: var(--accent); margin: 0;">Run Logs</h3>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn" onclick="loadJobLogs()"
+                            style="background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary); padding: 0.4rem 0.8rem; font-size: 0.8rem;">
+                            Refresh
+                        </button>
+                        <button class="btn" onclick="clearJobLogs()"
+                            style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; padding: 0.4rem 0.8rem; font-size: 0.8rem;">
+                            Clear All
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live session log -->
+                <div style="margin-bottom: 1.25rem;">
+                    <div style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 600; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Live Session</div>
+                    <div id="live-log-container"
+                        style="background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.78rem; line-height: 1.5;">
+                        <div style="color: var(--text-secondary);">Waiting for optimization run...</div>
+                    </div>
+                </div>
+
+                <!-- Job history -->
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 600; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Job History</div>
+                    <!-- Column headers -->
+                    <div style="display: grid; grid-template-columns: 110px 1fr 70px 55px 60px 55px 70px 40px; padding: 0.35rem 0.75rem; font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px; font-weight: 600; gap: 0.25rem;">
+                        <div>Date</div>
+                        <div>Algo / Source</div>
+                        <div style="text-align: center;">Stocks</div>
+                        <div style="text-align: center;">Ret</div>
+                        <div style="text-align: center;">Win%</div>
+                        <div style="text-align: center;">Duration</div>
+                        <div style="text-align: center;">Status</div>
+                        <div></div>
+                    </div>
+                    <div id="job-history-list">
+                        <div style="color: var(--text-secondary); font-size: 0.85rem; padding: 1rem; text-align: center;">Loading...</div>
+                    </div>
                 </div>
             </div>
 
@@ -1678,13 +1811,20 @@
             <input type="text" id="history-search" class="search-input" placeholder="🔍 Search symbol..."
                 oninput="filterHistory()">
             <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; margin-bottom: 0.75rem;">
-                <button class="sort-btn active" id="sort-date" onclick="sortHistory('date')" title="Sort by most recently optimized">📅 Date</button>
-                <button class="sort-btn" id="sort-sharpe" onclick="sortHistory('sharpe')" title="Sort by Sharpe Ratio — risk-adjusted return (higher = better risk/reward)">📈 Sharpe</button>
-                <button class="sort-btn" id="sort-max" onclick="sortHistory('max')" title="Sort by Maximum Gain — highest single-day % gain found in backtest">🚀 Max</button>
-                <button class="sort-btn" id="sort-win" onclick="sortHistory('win')" title="Sort by Win Rate — % of trades that were profitable">🎯 Win</button>
-                <button class="sort-btn" id="sort-fin" onclick="sortHistory('fin')" title="Sort by Final Portfolio Value — ending capital after backtest">💰 Fin</button>
-                <button class="sort-btn" id="sort-amnt" onclick="sortHistory('amnt')" title="Sort by Trade Count — number of winning trades executed">📊 Amnt</button>
-                <button class="sort-btn" id="sort-win2" onclick="sortHistory('win2')" title="Sort by Win Rate v2 — calculated directly from trade log">🏆 Win2</button>
+                <button class="sort-btn active" id="sort-date" onclick="sortHistory('date')"
+                    title="Sort by most recently optimized">📅 Date</button>
+                <button class="sort-btn" id="sort-sharpe" onclick="sortHistory('sharpe')"
+                    title="Sort by Sharpe Ratio — risk-adjusted return (higher = better risk/reward)">📈 Sharpe</button>
+                <button class="sort-btn" id="sort-max" onclick="sortHistory('max')"
+                    title="Sort by Maximum Gain — highest single-day % gain found in backtest">🚀 Max</button>
+                <button class="sort-btn" id="sort-win" onclick="sortHistory('win')"
+                    title="Sort by Win Rate — % of trades that were profitable">🎯 Win</button>
+                <button class="sort-btn" id="sort-fin" onclick="sortHistory('fin')"
+                    title="Sort by Final Portfolio Value — ending capital after backtest">💰 Fin</button>
+                <button class="sort-btn" id="sort-amnt" onclick="sortHistory('amnt')"
+                    title="Sort by Trade Count — number of winning trades executed">📊 Amnt</button>
+                <button class="sort-btn" id="sort-win2" onclick="sortHistory('win2')"
+                    title="Sort by Win Rate v2 — calculated directly from trade log">🏆 Win2</button>
             </div>
             <div class="filter-row">
                 <label class="filter-checkbox">
@@ -1709,6 +1849,7 @@
         const results = {};
         const CONFIG_KEY = 'optimizer_config';
         let historyData = []; // Store history data
+        let totalHistoryCount = 0; // Total history items in DB
         let currentSort = 'date'; // Current sort field
         let searchFilter = ''; // Search filter text
         let showGpuRuns = true; // GPU filter
@@ -1755,6 +1896,7 @@
         // Cache check debounce timer
         let cacheCheckTimer = null;
         let cachedSymbols = {};
+        let clearAllCachePolling = false;
 
         // Check if symbol data is cached in database
         async function clearPriceCache() {
@@ -1791,23 +1933,123 @@
             }
         }
 
+        function setClearAllCacheProgress(percent, statusText) {
+            const wrapper = document.getElementById('clear-all-cache-progress');
+            const fill = document.getElementById('clear-all-cache-fill');
+            const pctLabel = document.getElementById('clear-all-cache-percent');
+            const statusLabel = document.getElementById('clear-all-cache-status');
+
+            if (!wrapper || !fill || !pctLabel || !statusLabel) return;
+
+            const clamped = Math.max(0, Math.min(100, Number(percent || 0)));
+            wrapper.classList.add('active');
+            fill.style.width = `${clamped}%`;
+            pctLabel.textContent = `${Math.round(clamped)}%`;
+            if (statusText) {
+                statusLabel.textContent = statusText;
+            }
+        }
+
+        function hideClearAllCacheProgress() {
+            const wrapper = document.getElementById('clear-all-cache-progress');
+            if (!wrapper) return;
+            wrapper.classList.remove('active');
+        }
+
+        async function readJsonSafe(response) {
+            try {
+                return await response.json();
+            } catch (error) {
+                return {};
+            }
+        }
+
+        async function pollClearAllCacheJob(jobId, btn) {
+            const pollDelayMs = 800;
+            clearAllCachePolling = true;
+
+            while (clearAllCachePolling) {
+                const statusRes = await fetch(`/api/price-cache/clear-all/${jobId}`);
+                const statusData = await readJsonSafe(statusRes);
+                if (!statusRes.ok) {
+                    throw new Error(statusData.detail || `Status request failed (${statusRes.status})`);
+                }
+
+                const percent = Number(statusData.percent || 0);
+                const shownPercent = (statusData.status === 'running' && percent <= 0) ? 1 : percent;
+                const deletedBars = Number(statusData.deleted_bars || 0);
+                const deletedMeta = Number(statusData.deleted_meta || 0);
+                const phase = (statusData.phase || 'running').replace(/_/g, ' ');
+                const fallbackStatus = `${phase} • ${deletedBars.toLocaleString()} bars, ${deletedMeta.toLocaleString()} symbols`;
+                const statusText = statusData.message || fallbackStatus;
+
+                setClearAllCacheProgress(shownPercent, statusText);
+                btn.innerHTML = `⏳ Clearing all... ${Math.round(shownPercent)}%`;
+
+                if (statusData.status === 'completed') {
+                    clearAllCachePolling = false;
+                    setClearAllCacheProgress(100, statusData.message || 'Cache clear complete');
+                    return statusData;
+                }
+
+                if (statusData.status === 'failed') {
+                    clearAllCachePolling = false;
+                    throw new Error(statusData.error || statusData.message || 'Cache clear failed');
+                }
+
+                await new Promise(resolve => setTimeout(resolve, pollDelayMs));
+            }
+
+            throw new Error('Cache clear polling interrupted');
+        }
+
         async function clearAllPriceCache() {
+            if (clearAllCachePolling) {
+                log('⚠️ Cache clear already in progress', 'warning');
+                return;
+            }
+
             if (!confirm('Clear ALL cached price data for every symbol? This will force fresh downloads on next optimization.')) {
                 return;
             }
+
             const btn = document.getElementById('clear-all-cache-btn');
             btn.disabled = true;
             btn.innerHTML = '⏳ Clearing all...';
+            setClearAllCacheProgress(1, 'Starting clear-all cache job...');
+
             try {
-                const res = await fetch('/api/price-cache', { method: 'DELETE' });
-                const data = await res.json();
-                if (res.ok) {
-                    log(`✅ ${data.message}`, 'success');
-                } else {
-                    log(`❌ Failed: ${data.detail || 'Unknown error'}`, 'error');
+                const startRes = await fetch('/api/price-cache/clear-all', { method: 'POST' });
+                const startData = await readJsonSafe(startRes);
+                if (!startRes.ok) {
+                    throw new Error(startData.detail || startData.message || 'Failed to start clear-all cache job');
                 }
+
+                const jobId = startData.job_id;
+                if (!jobId) {
+                    throw new Error('Missing job_id from cache clear API');
+                }
+
+                if (startData.status === 'running') {
+                    log('ℹ️ Clear-all cache is already running. Re-attaching progress view...', 'warning');
+                } else {
+                    log('🧹 Started async clear-all cache job', 'info');
+                }
+
+                const finalStatus = await pollClearAllCacheJob(jobId, btn);
+                log(`✅ ${finalStatus.message || 'All cache cleared'}`, 'success');
+
+                await loadCachedSymbolsList();
                 checkSymbolCache();
+
+                setTimeout(() => {
+                    if (!clearAllCachePolling) {
+                        hideClearAllCacheProgress();
+                    }
+                }, 2500);
             } catch (error) {
+                clearAllCachePolling = false;
+                setClearAllCacheProgress(0, `Failed: ${error.message}`);
                 log(`❌ Failed to clear all cache: ${error.message}`, 'error');
             } finally {
                 btn.disabled = false;
@@ -1901,43 +2143,209 @@
 
         // Switch between Results, API Tester, and Keywords tabs
         function switchTopTab(tab) {
-            const resultsTab = document.getElementById('tab-results');
-            const apiTesterTab = document.getElementById('tab-api-tester');
-            const keywordsTab = document.getElementById('tab-keywords');
-            const apiKeysTab = document.getElementById('tab-api-keys');
-            const resultsContainer = document.getElementById('results');
-            const apiTesterPanel = document.getElementById('api-tester-panel');
-            const keywordsPanel = document.getElementById('keywords-panel');
-            const apiKeysPanel = document.getElementById('api-keys-panel');
-            // Get log tabs by finding the second .log-tabs element (first is top tabs)
-            const allLogTabs = document.querySelectorAll('.log-tabs');
-            const bottomLogTabs = allLogTabs.length > 1 ? allLogTabs[1] : null;
+            const tabs = {
+                'results': document.getElementById('tab-results'),
+                'api-tester': document.getElementById('tab-api-tester'),
+                'keywords': document.getElementById('tab-keywords'),
+                'api-keys': document.getElementById('tab-api-keys'),
+                'logs': document.getElementById('tab-logs'),
+            };
+            const panels = {
+                'results': document.getElementById('results'),
+                'api-tester': document.getElementById('api-tester-panel'),
+                'keywords': document.getElementById('keywords-panel'),
+                'api-keys': document.getElementById('api-keys-panel'),
+                'logs': document.getElementById('logs-panel'),
+            };
 
-            // Reset all tabs
-            resultsTab.classList.remove('active');
-            apiTesterTab.classList.remove('active');
-            keywordsTab.classList.remove('active');
-            apiKeysTab.classList.remove('active');
-            resultsContainer.style.display = 'none';
-            apiTesterPanel.style.display = 'none';
-            keywordsPanel.style.display = 'none';
-            apiKeysPanel.style.display = 'none';
+            // Reset all
+            Object.values(tabs).forEach(t => t && t.classList.remove('active'));
+            Object.values(panels).forEach(p => p && (p.style.display = 'none'));
 
-            if (tab === 'results') {
-                resultsTab.classList.add('active');
-                resultsContainer.style.display = 'flex';
-            } else if (tab === 'api-tester') {
-                apiTesterTab.classList.add('active');
-                apiTesterPanel.style.display = 'block';
-            } else if (tab === 'keywords') {
-                keywordsTab.classList.add('active');
-                keywordsPanel.style.display = 'block';
-                loadKeywordConfigs();
-            } else if (tab === 'api-keys') {
-                apiKeysTab.classList.add('active');
-                apiKeysPanel.style.display = 'block';
-                loadApiKeys();
+            // Activate selected
+            if (tabs[tab]) tabs[tab].classList.add('active');
+            if (panels[tab]) panels[tab].style.display = (tab === 'results') ? 'flex' : 'block';
+
+            // Side effects
+            if (tab === 'keywords') loadKeywordConfigs();
+            if (tab === 'api-keys') loadApiKeys();
+            if (tab === 'logs') loadJobLogs();
+        }
+
+        // ── Logs Tab Functions ─────────────────────────────────────────────
+        async function loadJobLogs() {
+            const container = document.getElementById('job-history-list');
+            try {
+                const resp = await fetch('/api/jobs?limit=100');
+                const jobs = await resp.json();
+                if (!jobs.length) {
+                    container.innerHTML = '<div style="color: var(--text-secondary); font-size: 0.85rem; padding: 1rem; text-align: center;">No optimization runs yet.</div>';
+                    return;
+                }
+                container.innerHTML = jobs.map(j => renderJobRow(j)).join('');
+            } catch (e) {
+                container.innerHTML = `<div style="color: #ef4444; padding: 1rem;">Failed to load jobs: ${e.message}</div>`;
             }
+        }
+
+        async function clearJobLogs() {
+            if (!confirm('Delete all job logs? This also removes associated optimization results.')) return;
+            try {
+                const resp = await fetch('/api/jobs', { method: 'DELETE' });
+                const data = await resp.json();
+                // Clear caches
+                Object.keys(_jobDetailCache).forEach(k => delete _jobDetailCache[k]);
+                // Clear live log
+                const liveLog = document.getElementById('live-log-container');
+                if (liveLog) { liveLog.innerHTML = '<div style="color: var(--text-secondary);">Waiting for optimization run...</div>'; delete liveLog.dataset.started; }
+                // Reload
+                loadJobLogs();
+                loadHistory();
+            } catch (e) {
+                alert('Failed to clear logs: ' + e.message);
+            }
+        }
+
+        function renderJobRow(job) {
+            const date = job.created_at ? new Date(job.created_at) : null;
+            const dateStr = date ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
+            const timeStr = date ? date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+            const stockCount = job.symbols ? job.symbols.length : 0;
+            const resultCount = job.result_count || 0;
+            const avgRet = job.avg_return != null ? job.avg_return.toFixed(1) + '%' : '—';
+            const avgWin = job.avg_win_rate != null ? job.avg_win_rate.toFixed(0) + '%' : '—';
+            const dur = job.duration_seconds != null ? formatDuration(job.duration_seconds) : '—';
+            const algo = formatAlgoName(job.algo || 'default');
+            const source = formatSourceName(job.data_source || 'widesurf');
+            const isCompleted = job.status === 'completed';
+            const statusBadge = isCompleted
+                ? '<span style="color: #22c55e; font-size: 0.75rem;">DONE</span>'
+                : '<span style="color: #f59e0b; font-size: 0.75rem;">RUN</span>';
+
+            return `
+            <div style="background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden;">
+                <div onclick="toggleJobDetail('${job.job_id}')" style="display: grid; grid-template-columns: 110px 1fr 70px 55px 60px 55px 70px 40px; align-items: center; padding: 0.6rem 0.75rem; cursor: pointer; font-size: 0.8rem; gap: 0.25rem;"
+                     onmouseenter="this.style.background='var(--bg-card)'" onmouseleave="this.style.background='transparent'">
+                    <div>
+                        <div style="color: var(--text-primary); font-weight: 500;">${dateStr}</div>
+                        <div style="color: var(--text-secondary); font-size: 0.72rem;">${timeStr}</div>
+                    </div>
+                    <div>
+                        <div style="color: var(--accent); font-weight: 500;">${algo}</div>
+                        <div style="color: var(--text-secondary); font-size: 0.72rem;">${source}</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: var(--text-primary);">${resultCount}/${stockCount}</div>
+                        <div style="color: var(--text-secondary); font-size: 0.7rem;">stocks</div>
+                    </div>
+                    <div style="text-align: center; color: ${parseFloat(avgRet) > 0 ? '#22c55e' : parseFloat(avgRet) < 0 ? '#ef4444' : 'var(--text-secondary)'}; font-weight: 600;">
+                        ${avgRet}
+                    </div>
+                    <div style="text-align: center; color: var(--text-secondary);">${avgWin}</div>
+                    <div style="text-align: center; color: var(--text-secondary); font-size: 0.78rem;">${dur}</div>
+                    <div style="text-align: center;">${statusBadge}</div>
+                    <div style="text-align: center; color: var(--text-secondary); font-size: 0.7rem;" id="arrow-${job.job_id}">&#9654;</div>
+                </div>
+                <div id="detail-${job.job_id}" style="display: none; border-top: 1px solid var(--border); padding: 0.75rem; background: var(--bg-card);">
+                    <div style="color: var(--text-secondary); font-size: 0.78rem;">Loading...</div>
+                </div>
+            </div>`;
+        }
+
+        function formatDuration(secs) {
+            if (secs < 60) return Math.round(secs) + 's';
+            if (secs < 3600) return Math.round(secs / 60) + 'm';
+            return (secs / 3600).toFixed(1) + 'h';
+        }
+
+        function formatAlgoName(algo) {
+            const names = {
+                'default': 'Momentum',
+                'momentum': 'Momentum',
+                'chatgpt': 'ChatGPT 10am',
+                'chatgpt_stoploss': 'ChatGPT SL',
+                'chatgpt_vwap': 'VWAP',
+                'chatgpt_vwap_rust': 'VWAP Rust',
+            };
+            return names[algo] || algo;
+        }
+
+        function formatSourceName(src) {
+            const names = {
+                'widesurf': 'Widesurf V1',
+                'widesurf_v2': 'Widesurf V2',
+                'alpaca': 'Alpaca',
+            };
+            return names[src] || src;
+        }
+
+        const _jobDetailCache = {};
+        async function toggleJobDetail(jobId) {
+            const el = document.getElementById('detail-' + jobId);
+            const arrow = document.getElementById('arrow-' + jobId);
+            if (!el) return;
+            if (el.style.display !== 'none') {
+                el.style.display = 'none';
+                if (arrow) arrow.innerHTML = '&#9654;';
+                return;
+            }
+            el.style.display = 'block';
+            if (arrow) arrow.innerHTML = '&#9660;';
+
+            if (_jobDetailCache[jobId]) {
+                el.innerHTML = renderJobDetails(_jobDetailCache[jobId]);
+                return;
+            }
+            try {
+                const resp = await fetch('/api/jobs/' + jobId);
+                const data = await resp.json();
+                _jobDetailCache[jobId] = data;
+                el.innerHTML = renderJobDetails(data);
+            } catch (e) {
+                el.innerHTML = `<div style="color: #ef4444; font-size: 0.8rem;">Failed to load: ${e.message}</div>`;
+            }
+        }
+
+        function renderJobDetails(results) {
+            if (!results.length) return '<div style="color: var(--text-secondary); font-size: 0.8rem;">No results for this job.</div>';
+            let html = '<div style="display: grid; grid-template-columns: 70px 60px 55px 55px 55px 50px; gap: 0.25rem; font-size: 0.72rem; color: var(--text-secondary); font-weight: 600; padding: 0 0.25rem 0.35rem; text-transform: uppercase; letter-spacing: 0.3px;">'
+                + '<div>Symbol</div><div style="text-align:right">Return</div><div style="text-align:right">Win%</div><div style="text-align:right">Sharpe</div><div style="text-align:right">Buy%</div><div style="text-align:right">Sell%</div></div>';
+            results.forEach(r => {
+                const ret = r.total_return != null ? r.total_return.toFixed(1) + '%' : '—';
+                const retColor = r.total_return > 0 ? '#22c55e' : r.total_return < 0 ? '#ef4444' : 'var(--text-secondary)';
+                const win = r.win_rate != null ? r.win_rate.toFixed(0) + '%' : '—';
+                const sharpe = r.sharpe != null ? r.sharpe.toFixed(2) : '—';
+                const buy = r.buy_trigger_pct != null ? r.buy_trigger_pct.toFixed(1) : '—';
+                const sell = r.sell_trigger_pct != null ? r.sell_trigger_pct.toFixed(1) : '—';
+                html += `<div style="display: grid; grid-template-columns: 70px 60px 55px 55px 55px 50px; gap: 0.25rem; font-size: 0.78rem; padding: 0.2rem 0.25rem; border-bottom: 1px solid var(--border);">
+                    <div style="color: var(--accent); font-weight: 500;">${r.symbol}</div>
+                    <div style="text-align:right; color: ${retColor}; font-weight: 600;">${ret}</div>
+                    <div style="text-align:right; color: var(--text-secondary);">${win}</div>
+                    <div style="text-align:right; color: var(--text-secondary);">${sharpe}</div>
+                    <div style="text-align:right; color: var(--text-secondary);">${buy}</div>
+                    <div style="text-align:right; color: var(--text-secondary);">${sell}</div>
+                </div>`;
+            });
+            return html;
+        }
+
+        // Append live WebSocket messages to the Logs tab live session area
+        function appendToLiveLog(message, type) {
+            const container = document.getElementById('live-log-container');
+            if (!container) return;
+            // Clear placeholder on first real message
+            if (!container.dataset.started) {
+                container.innerHTML = '';
+                container.dataset.started = '1';
+            }
+            const entry = document.createElement('div');
+            const colors = { info: '#60a5fa', success: '#22c55e', error: '#ef4444', warning: '#f59e0b' };
+            entry.style.color = colors[type] || 'var(--text-secondary)';
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+            // Cap at 500 lines
+            while (container.children.length > 500) container.removeChild(container.firstChild);
         }
 
         // Load keyword configurations from API
@@ -2446,8 +2854,8 @@
                                                 <span style="color: #94a3b8; font-weight: 400; font-size: 0.55rem; margin-left: 8px;">👆 Click any row to see detailed explanation</span>
                                             </div>
                                             <div style="display: flex; gap: 0.5rem; font-size: 0.6rem;">
-                                                <span style="background: ${currentTradeLogMeta.data_source === 'widesurf' ? '#a78bfa' : currentTradeLogMeta.data_source === 'massive' ? '#ffa500' : '#22c55e'}; color: white; padding: 2px 6px; border-radius: 4px; font-weight: 600;">
-                                                    📡 ${currentTradeLogMeta.data_source === 'widesurf' ? 'Widesurf API' : currentTradeLogMeta.data_source === 'massive' ? 'Massive.com' : 'Alpaca API'}
+                                                <span style="background: ${currentTradeLogMeta.data_source === 'widesurf' ? '#a78bfa' : currentTradeLogMeta.data_source === 'widesurf_v2' ? '#7c3aed' : currentTradeLogMeta.data_source === 'massive' ? '#ffa500' : '#22c55e'}; color: white; padding: 2px 6px; border-radius: 4px; font-weight: 600;">
+                                                    📡 ${currentTradeLogMeta.data_source === 'widesurf' ? 'Widesurf API' : currentTradeLogMeta.data_source === 'widesurf_v2' ? 'Widesurf API V2' : currentTradeLogMeta.data_source === 'massive' ? 'Massive.com' : 'Alpaca API'}
                                                 </span>
                                             </div>
                                         </div>
@@ -2608,13 +3016,14 @@
 
         // Update global progress display
         function updateGlobalProgress() {
+            const safeCompletedSymbols = Math.min(globalProgress.completedSymbols, globalProgress.totalSymbols || globalProgress.completedSymbols);
             const totalTrials = globalProgress.totalSymbols * globalProgress.trialsPerSymbol;
-            const completedTrials = (globalProgress.completedSymbols * globalProgress.trialsPerSymbol) + globalProgress.currentSymbolTrials;
+            const completedTrials = (safeCompletedSymbols * globalProgress.trialsPerSymbol) + globalProgress.currentSymbolTrials;
             const percent = totalTrials > 0 ? (completedTrials / totalTrials) * 100 : 0;
 
             document.getElementById('global-progress-fill').style.width = `${percent}%`;
             document.getElementById('global-progress-percent').textContent = `${Math.round(percent)}%`;
-            document.getElementById('progress-stocks').textContent = `Stock ${globalProgress.completedSymbols + (globalProgress.currentSymbolTrials > 0 ? 1 : 0)}/${globalProgress.totalSymbols}`;
+            document.getElementById('progress-stocks').textContent = `Stock ${safeCompletedSymbols + (globalProgress.currentSymbolTrials > 0 ? 1 : 0)}/${globalProgress.totalSymbols}`;
             document.getElementById('progress-trials').textContent = `Trial ${completedTrials}/${totalTrials}`;
 
             // Calculate speed and ETA
@@ -2743,14 +3152,17 @@
             try {
                 // Load history and cached symbols list in parallel (non-blocking)
                 // If cache symbols fails, history still loads (just without DB icons)
-                const [historyResp] = await Promise.all([
+                const [historyResp, countResp] = await Promise.all([
                     fetch('/api/history'),
+                    fetch('/api/history/count').then(r => r.json()).catch(e => ({ count: 0 })),
                     loadCachedSymbolsList().catch(e => console.warn('Cache symbols load failed (non-critical):', e))
                 ]);
                 if (!historyResp.ok) throw new Error(`HTTP ${historyResp.status}`);
                 historyData = await historyResp.json();
-                // Update counter
-                document.getElementById('history-count').textContent = `(${historyData.length})`;
+
+                // Update counter with total from DB
+                totalHistoryCount = countResp.count || historyData.length;
+                document.getElementById('history-count').textContent = `(${totalHistoryCount})`;
                 sortAndRenderHistory();
             } catch (e) {
                 console.error('Failed to load history:', e);
@@ -2797,41 +3209,16 @@
                     sorted.sort((a, b) => (b.win_rate || 0) - (a.win_rate || 0));
                     break;
                 case 'fin':
-                    // Sort by final equity from trade_log
-                    sorted.sort((a, b) => {
-                        const getLastEquity = (item) => {
-                            if (item.trade_log && item.trade_log.length > 0) {
-                                const tradesWithEquity = item.trade_log.filter(t => t.equity);
-                                if (tradesWithEquity.length > 0) {
-                                    const capital = item.capital || 100000;
-                                    return tradesWithEquity[tradesWithEquity.length - 1].equity / capital;
-                                }
-                            }
-                            return 0;
-                        };
-                        return getLastEquity(b) - getLastEquity(a);
-                    });
+                    // Sort by final equity or return % (since trade_log is not in list view)
+                    sorted.sort((a, b) => (b.total_return || 0) - (a.total_return || 0));
                     break;
                 case 'amnt':
-                    // Sort by number of winning trades (parse from trade_log if available)
-                    sorted.sort((a, b) => {
-                        const aWins = a.trade_log ? a.trade_log.filter(t => t.bought && t.profit > 0).length : 0;
-                        const bWins = b.trade_log ? b.trade_log.filter(t => t.bought && t.profit > 0).length : 0;
-                        return bWins - aWins;
-                    });
+                    // Sort by total trades metric
+                    sorted.sort((a, b) => (b.total_trades || 0) - (a.total_trades || 0));
                     break;
                 case 'win2':
-                    // Sort by calculated win rate from trade_log (wins / total * 100)
-                    sorted.sort((a, b) => {
-                        const getWinRate = (item) => {
-                            if (!item.trade_log) return 0;
-                            const trades = item.trade_log.filter(t => t.bought);
-                            const wins = trades.filter(t => t.profit > 0).length;
-                            const total = trades.length;
-                            return total > 0 ? (wins / total * 100) : 0;
-                        };
-                        return getWinRate(b) - getWinRate(a);
-                    });
+                    // Use win_rate metric (trade_log calculation fallback is slow/offline)
+                    sorted.sort((a, b) => (b.win_rate || 0) - (a.win_rate || 0));
                     break;
                 case 'date':
                 default:
@@ -2892,6 +3279,33 @@
                 const sharpe = item.sharpe_from_json ?? item.score;
                 const maxGain = item.volatility_max_gain;
                 const isGpu = item.method === 'gpu_grid_search';
+                const tradeLog = Array.isArray(item.trade_log) ? item.trade_log : [];
+                const winRate = item.win_rate != null ? parseFloat(item.win_rate) : null;
+                let totalTrades = null;
+                let successfulTrades = null;
+
+                // Prefer exact counts from trade log when available.
+                if (tradeLog.length > 0) {
+                    const executedTrades = tradeLog.filter(t => t && t.bought);
+                    totalTrades = executedTrades.length;
+                    successfulTrades = executedTrades.filter(t => (Number(t.profit) || 0) > 0).length;
+                }
+
+                // Fallback to aggregated metrics from history list endpoint.
+                if (totalTrades === null && item.total_trades != null) {
+                    const parsedTotal = Math.round(parseFloat(item.total_trades));
+                    if (!Number.isNaN(parsedTotal) && parsedTotal >= 0) {
+                        totalTrades = parsedTotal;
+                    }
+                    if (totalTrades !== null && winRate !== null && !Number.isNaN(winRate)) {
+                        successfulTrades = Math.round(Math.max(0, Math.min(1, winRate)) * totalTrades);
+                    }
+                }
+
+                const tradesDisplay =
+                    (successfulTrades !== null && totalTrades !== null)
+                        ? `${successfulTrades}/${totalTrades}`
+                        : 'N/A';
                 const gpuIcon = isGpu
                     ? '<span class="gpu-icon gpu" title="GPU Run">GPU</span>'
                     : '<span class="gpu-icon cpu" title="CPU Run">CPU</span>';
@@ -2916,7 +3330,12 @@
                                                         <div class="history-score">
                                                             win: ${item.win_rate != null ? (parseFloat(item.win_rate) * 100).toFixed(0) + '%' : 'N/A'} |
                                                             ret: ${item.total_return != null ? (parseFloat(item.total_return) * 100).toFixed(1) + '%' : 'N/A'} |
-                                                            fin: ${item.total_return != null ? ((parseFloat(item.total_return) + 1) * 100).toFixed(1) + '%' : 'N/A'}
+                                                            fin: ${item.total_return != null ? ((parseFloat(item.total_return) + 1) * 100).toFixed(1) + '%' : 'N/A'} |
+                                                            trades: ${tradesDisplay}
+                                                        </div>
+                                                        <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 2px;">
+                                                            ${item.sharpe_from_json != null ? `sharpe: ${parseFloat(item.sharpe_from_json).toFixed(2)} | ` : ''}
+                                                            ${item.volatility_max_gain != null ? `max: ${parseFloat(item.volatility_max_gain).toFixed(1)}%` : ''}
                                                         </div>
                                                     </div>
                                                     <button class="delete-btn" onclick="event.stopPropagation(); deleteHistoryItem(${item.id})" title="Delete">🗑️</button>
@@ -2938,7 +3357,8 @@
         async function deleteHistoryItem(id) {
             // Optimistic UI update - remove immediately
             historyData = historyData.filter(item => item.id !== id);
-            document.getElementById('history-count').textContent = `(${historyData.length})`;
+            totalHistoryCount = Math.max(0, totalHistoryCount - 1);
+            document.getElementById('history-count').textContent = `(${totalHistoryCount})`;
             sortAndRenderHistory();
 
             // Delete in background
@@ -3207,6 +3627,13 @@
         }
 
         function handleMessage(data) {
+            // Feed all messages to live log in Logs tab
+            if (data.message) {
+                const logType = data.type === 'error' ? 'error' : data.type === 'warning' ? 'warning'
+                    : (data.type === 'complete' || data.type === 'job_complete') ? 'success' : 'info';
+                appendToLiveLog(data.message, logType);
+            }
+
             switch (data.type) {
                 case 'status':
                     updateStatus(data);
@@ -3214,22 +3641,34 @@
                 case 'progress':
                     updateProgress(data);
                     break;
+                case 'job_progress':
+                    updateJobProgress(data);
+                    break;
                 case 'warning':
                     showWarning(data);
                     break;
                 case 'complete':
                     showComplete(data);
-                    // loadHistory(); // REMOVED: showComplete now handles optimistic update
+                    break;
+                case 'stock_complete':
+                    showComplete(data);
                     break;
                 case 'error':
                     showError(data);
                     break;
                 case 'job_complete':
+                case 'optimization_complete':
                     log('All optimizations complete!', 'success');
                     document.getElementById('start-btn').disabled = false;
+                    document.getElementById('partial-btn').disabled = false;
                     document.getElementById('start-btn').textContent = 'Start Optimization';
+                    document.getElementById('partial-btn').textContent = '🧩 Partial Optimization';
+                    activeJobIds = [];
                     hideGlobalProgress();
                     loadHistory();
+                    // Refresh job list in Logs tab
+                    _jobDetailCache && Object.keys(_jobDetailCache).forEach(k => delete _jobDetailCache[k]);
+                    if (document.getElementById('logs-panel').style.display !== 'none') loadJobLogs();
                     break;
             }
         }
@@ -3396,17 +3835,47 @@
             updateGlobalProgress();
         }
 
+        function updateJobProgress(data) {
+            // Only track progress for currently active jobs
+            if (data.job_id && activeJobIds.length > 0 && !activeJobIds.includes(data.job_id)) return;
+
+            hasJobProgressUpdates = true;
+            const isPrefetchPhase = (typeof data.message === 'string' && data.message.includes('Downloaded data'));
+
+            if (Number.isFinite(data.total) && data.total > 0) {
+                globalProgress.totalSymbols = data.total;
+            }
+
+            if (!isPrefetchPhase && Number.isFinite(data.completed) && data.completed >= 0) {
+                globalProgress.completedSymbols = Math.min(data.completed, globalProgress.totalSymbols || data.completed);
+                // job_progress is symbol-level completion, so reset per-symbol trial progress
+                globalProgress.currentSymbolTrials = 0;
+            }
+
+            document.getElementById('phase-status').textContent = isPrefetchPhase ? '📥 Prefetch' : '⚙️ Batch';
+            updateGlobalProgress();
+
+            if (data.message) {
+                document.getElementById('progress-trials').textContent = data.message;
+            }
+        }
+
         function showComplete(data) {
             // Only count completions from current job
             if (data.job_id && !activeJobIds.includes(data.job_id)) return;
 
             log(`[${data.symbol}] Optimization complete!`, 'success');
-            results[data.symbol] = data.result;
+            if (data.result) {
+                results[data.symbol] = data.result;
+            }
 
-            // Update global progress - mark symbol as complete
-            globalProgress.completedSymbols++;
-            globalProgress.currentSymbolTrials = 0;
-            updateGlobalProgress();
+            // If backend does not emit job_progress, fall back to per-symbol completion counting
+            if (!hasJobProgressUpdates && data.symbol && !finalizedSymbols.has(data.symbol)) {
+                finalizedSymbols.add(data.symbol);
+                globalProgress.completedSymbols++;
+                globalProgress.currentSymbolTrials = 0;
+                updateGlobalProgress();
+            }
 
             const card = document.getElementById(`card-${data.symbol}`);
             if (card) {
@@ -3501,10 +3970,15 @@
                 };
 
                 // Remove if already exists (avoids duplicates if backend saved it)
+                const exists = historyData.some(item => (item.symbol === data.symbol && item.job_id === data.job_id));
                 historyData = historyData.filter(item => !(item.symbol === data.symbol && item.job_id === data.job_id));
 
+                if (!exists) {
+                    totalHistoryCount++;
+                }
+
                 historyData.unshift(newHistoryItem);  // Add to front of list
-                document.getElementById('history-count').textContent = `(${historyData.length})`;
+                document.getElementById('history-count').textContent = `(${totalHistoryCount})`;
                 sortAndRenderHistory();  // Re-render the list
             }
         }
@@ -3516,6 +3990,14 @@
                 card.classList.add('error');
                 const status = card.querySelector('.status-badge');
                 status.textContent = 'Error';
+            }
+
+            // If backend does not emit job_progress, count failed symbols so global stock counter doesn't freeze
+            if (!hasJobProgressUpdates && data.symbol && !finalizedSymbols.has(data.symbol)) {
+                finalizedSymbols.add(data.symbol);
+                globalProgress.completedSymbols = Math.min(globalProgress.completedSymbols + 1, globalProgress.totalSymbols);
+                globalProgress.currentSymbolTrials = 0;
+                updateGlobalProgress();
             }
         }
 
@@ -3589,9 +4071,11 @@
             }
         }
 
-        // Track active job IDs for cancellation
+        // Track active job IDs and per-run completion state
         let activeJobIds = [];
         let optimizationStopped = false;
+        let finalizedSymbols = new Set();
+        let hasJobProgressUpdates = false;
 
         async function stopOptimization() {
             if (activeJobIds.length === 0) {
@@ -3624,7 +4108,7 @@
             }
         }
 
-        async function startOptimization() {
+        async function startOptimization(isPartial = false) {
             let symbolsInput = document.getElementById('symbols').value.trim().toUpperCase();
 
             // Expand keywords to stock lists
@@ -3642,17 +4126,20 @@
                 // Fetch stocks from Widesurf API
                 try {
                     document.getElementById('start-btn').disabled = true;
+                    document.getElementById('partial-btn').disabled = true;
                     document.getElementById('start-btn').textContent = 'Fetching stocks...';
                     symbols = await fetchWidesurfStocks(symbolsInput);
                     if (!symbols || symbols.length === 0) {
                         log(`❌ No stocks returned from API for ${symbolsInput}`, 'error');
                         document.getElementById('start-btn').disabled = false;
+                        document.getElementById('partial-btn').disabled = false;
                         document.getElementById('start-btn').textContent = 'Start Optimization';
                         return;
                     }
                 } catch (error) {
                     log(`❌ Failed to fetch stocks for ${symbolsInput}: ${error.message}`, 'error');
                     document.getElementById('start-btn').disabled = false;
+                    document.getElementById('partial-btn').disabled = false;
                     document.getElementById('start-btn').textContent = 'Start Optimization';
                     return;
                 }
@@ -3682,6 +4169,8 @@
 
             // Initialize and show global progress bar
             showGlobalProgress(symbols, trials);
+            finalizedSymbols = new Set();
+            hasJobProgressUpdates = false;
 
             // Show GPU mode in log
             if (useGpu) {
@@ -3689,9 +4178,13 @@
             }
 
             document.getElementById('start-btn').disabled = true;
+            document.getElementById('partial-btn').disabled = true;
             document.getElementById('start-btn').textContent = 'Optimizing...';
+            if (isPartial) {
+                document.getElementById('partial-btn').textContent = 'Checking stocks...';
+            }
 
-            log(`Starting optimization for: ${symbols.join(', ')}`, 'info');
+            log(`${isPartial ? 'Partial' : 'Full'} optimization started for: ${symbols.join(', ')}`, 'info');
 
             try {
                 const algo = document.getElementById('algo-select').value;
@@ -3713,7 +4206,8 @@
                         smart_timing: smartTiming,
                         timing_approach: timingApproach,
                         algo: algo,
-                        data_source: document.getElementById('data-source').value
+                        data_source: document.getElementById('data-source').value,
+                        partial: isPartial
                     })
                 });
 
@@ -3722,10 +4216,20 @@
                     activeJobIds.push(data.job_id);
                 }
                 log(`Job started: ${data.job_id}`, 'info');
+
+                // If all stocks skipped, reset buttons
+                if (data.status === 'completed' && data.symbols && data.symbols.length === 0) {
+                    document.getElementById('start-btn').disabled = false;
+                    document.getElementById('partial-btn').disabled = false;
+                    document.getElementById('start-btn').textContent = 'Start Optimization';
+                    document.getElementById('partial-btn').textContent = '🧩 Partial Optimization';
+                }
             } catch (e) {
                 log(`Failed to start: ${e.message}`, 'error');
                 document.getElementById('start-btn').disabled = false;
+                document.getElementById('partial-btn').disabled = false;
                 document.getElementById('start-btn').textContent = 'Start Optimization';
+                document.getElementById('partial-btn').textContent = '🧩 Partial Optimization';
             }
         }
 
@@ -3751,7 +4255,7 @@
         }
 
         // Call on load to show default description when timing panel is visible
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             updateTimingDescription();
         });
 
@@ -3774,6 +4278,10 @@
                     if (keys.WIDESURF) {
                         document.getElementById('api-key-widesurf-secret').value = keys.WIDESURF.secret_key || '';
                         document.getElementById('api-key-widesurf-url').value = keys.WIDESURF.base_url || '';
+                    }
+                    if (keys.WIDESURF_V2) {
+                        document.getElementById('api-key-widesurf-v2-secret').value = keys.WIDESURF_V2.secret_key || '';
+                        document.getElementById('api-key-widesurf-v2-url').value = keys.WIDESURF_V2.base_url || '';
                     }
                 }
             } catch (error) {
@@ -3801,6 +4309,10 @@
                 WIDESURF: {
                     secret_key: document.getElementById('api-key-widesurf-secret').value,
                     base_url: document.getElementById('api-key-widesurf-url').value
+                },
+                WIDESURF_V2: {
+                    secret_key: document.getElementById('api-key-widesurf-v2-secret').value,
+                    base_url: document.getElementById('api-key-widesurf-v2-url').value
                 }
             };
 

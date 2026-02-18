@@ -25,6 +25,9 @@ DB_CONFIG = {
 WIDESURF_API_KEY = os.getenv("WIDESURF_API_KEY", "69xn13ehEccqzDJxw29KH0mzzbIIgI2NRttD7m6p9gA")
 WIDESURF_API_URL = os.getenv("WIDESURF_API_URL", "http://10.0.0.94:8020")
 
+WIDESURF_V2_API_KEY = os.getenv("WIDESURF_V2_API_KEY", "69xn13ehEccqzDJxw29KH0mzzbIIgI2NRttD7m6p9gA")
+WIDESURF_V2_API_URL = os.getenv("WIDESURF_V2_API_URL", "http://10.0.0.94:8090")
+
 # Massive.com API configuration
 MASSIVE_API_KEY = os.getenv("MASSIVE_API_KEY", "vQtz66lpyexhpplKWhLL7rOXdfnClQsh")
 MASSIVE_API_URL = "https://api.massive.com"

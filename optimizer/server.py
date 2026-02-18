@@ -11,6 +11,7 @@ import config
 import asyncio
 import time
 from datetime import datetime, timedelta
+from uuid import uuid4
 from typing import Dict, List, Optional
 try:
     from zoneinfo import ZoneInfo
@@ -43,7 +44,7 @@ from database import (
     get_results_from_db, ensure_keyword_configs_table,
     get_keyword_configs, save_keyword_config, save_all_keyword_configs,
     ensure_api_keys_table, get_api_keys, save_api_key,
-    POSTGRES_AVAILABLE
+    bulk_save_prices, POSTGRES_AVAILABLE
 )
 
 import numpy as np
@@ -291,51 +292,20 @@ def get_cached_prices(symbol: str, timeframe: str, start_date: str, end_date: st
 
 
 def save_prices_to_cache(symbol: str, timeframe: str, bars: list):
-    """Save prices to cache database."""
+    """Save prices to cache database using optimized bulk insertion."""
     if not bars:
         return
     
-    conn = get_db_conn()
-    if not conn:
-        return
-    
     try:
-        with conn.cursor() as cur:
-            # Insert bars
-            for bar in bars:
-                bar_time_str = bar.get("t", "")
-                if not bar_time_str:
-                    continue
-                
-                # Parse date from timestamp
-                bar_date = bar_time_str[:10]
-                
-                # Use actual column names from the existing table
-                cur.execute("""
-                    INSERT INTO price_cache 
-                    (symbol, timeframe, bar_date, bar_timestamp, open, high, low, close, volume, vwap)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (symbol, timeframe, bar_date, bar_timestamp) DO UPDATE SET
-                    open = EXCLUDED.open,
-                    high = EXCLUDED.high,
-                    low = EXCLUDED.low,
-                    close = EXCLUDED.close,
-                    volume = EXCLUDED.volume,
-                    vwap = EXCLUDED.vwap
-                """, (
-                    symbol.upper(),
-                    timeframe,
-                    bar_date,
-                    bar_time_str,
-                    bar.get("o", 0),
-                    bar.get("h", 0),
-                    bar.get("l", 0),
-                    bar.get("c", 0),
-                    bar.get("v", 0),
-                    bar.get("vw", None)  # VWAP from Alpaca
-                ))
+        # Use optimized bulk save from database.py
+        bulk_save_prices(symbol, timeframe, bars)
+        
+        # After bulk save, update metadata
+        conn = get_db_conn()
+        if not conn:
+            return
             
-            # Update metadata
+        with conn.cursor() as cur:
             cur.execute("""
                 SELECT MIN(bar_date), MAX(bar_date), COUNT(*) 
                 FROM price_cache 
@@ -352,15 +322,11 @@ def save_prices_to_cache(symbol: str, timeframe: str, bars: list):
                     bar_count = EXCLUDED.bar_count,
                     last_updated = NOW()
                 """, (symbol.upper(), timeframe, row[0], row[1], row[2]))
-        
-        conn.commit()
+            conn.commit()
+            release_db_conn(conn)
         logger.info(f"Saved {len(bars)} bars to cache for {symbol} ({timeframe})")
     except Exception as e:
         logger.error(f"Failed to save prices to cache: {e}")
-        conn.rollback()
-    finally:
-        if conn:
-            release_db_conn(conn)
 
 
 def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timeframe: str = "1Day") -> list:
@@ -404,11 +370,7 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
             fetch_ranges.append(((cached_max + timedelta(days=1)).strftime("%Y-%m-%d"), end_date))
     
     
-    # #region agent log
-    import json as _json
-    with open("/app/debug.log", "a") as _f:
-        _f.write(_json.dumps({"hypothesisId": "H3", "location": "server.py:600", "message": "fetch_and_cache_prices called", "data": {"symbol": symbol, "start": start_date, "end": end_date, "timeframe": timeframe, "cached_min": str(cached_min), "cached_max": str(cached_max), "fetch_ranges": [(str(a), str(b)) for a, b in fetch_ranges]}, "timestamp": int(__import__("time").time()*1000)}) + "\n")
-    # #endregion
+
     
     # Fetch missing data
     for fetch_start, fetch_end in fetch_ranges:
@@ -440,7 +402,8 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
             fetch_end_dt = datetime.strptime(fetch_end, "%Y-%m-%d")
             
             while current <= fetch_end_dt:
-                chunk_end = min(current + timedelta(days=7), fetch_end_dt)
+                # Increased chunk size from 7 to 30 days to reduce API overhead
+                chunk_end = min(current + timedelta(days=30), fetch_end_dt)
                 
                 try:
                     resp = requests.get(
@@ -453,10 +416,7 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
                         },
                         timeout=120  # Longer timeout — API now paginates through all bars
                     )
-                    # #region agent log
-                    with open("/app/debug.log", "a") as _f:
-                        _f.write(_json.dumps({"hypothesisId": "H4", "location": "server.py:643", "message": "API response for 1Min data", "data": {"symbol": symbol, "chunk_start": current.strftime("%Y-%m-%d"), "chunk_end": chunk_end.strftime("%Y-%m-%d"), "status": resp.status_code, "num_bars": len(resp.json()) if resp.status_code == 200 else 0, "sample_t": resp.json()[0].get("t", "") if resp.status_code == 200 and resp.json() else ""}, "timestamp": int(__import__("time").time()*1000)}) + "\n")
-                    # #endregion
+
                     if resp.status_code == 200:
                         bars = resp.json()
                         if bars and len(bars) > 0:
@@ -495,9 +455,25 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
 # ============================================================================
 
 # Widesurf API configuration — import from config.py for consistency
-from config import WIDESURF_API_KEY, WIDESURF_API_URL
+from config import WIDESURF_API_KEY, WIDESURF_API_URL, WIDESURF_V2_API_KEY, WIDESURF_V2_API_URL
 
-def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, timeframe: str = "1Min", target_time: str = None) -> list:
+def _is_widesurf_source(data_source: str) -> bool:
+    """Return True if data_source is any Widesurf variant (widesurf or widesurf_v2)."""
+    return data_source in ("widesurf", "widesurf_v2")
+
+def _get_widesurf_config(data_source: str) -> tuple:
+    """Return (api_url, api_key) for the given Widesurf data source variant."""
+    if data_source == "widesurf_v2":
+        return WIDESURF_V2_API_URL, WIDESURF_V2_API_KEY
+    return WIDESURF_API_URL, WIDESURF_API_KEY
+
+def _get_widesurf_label(data_source: str) -> str:
+    """Return display label for a Widesurf data source variant."""
+    if data_source == "widesurf_v2":
+        return "Widesurf API V2"
+    return "Widesurf API"
+
+def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, timeframe: str = "1Min", target_time: str = None, api_url: str = None, api_key: str = None) -> list:
     """
     Fetch historical price data from Widesurf API.
     
@@ -511,7 +487,19 @@ def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, time
     Returns:
         List of price bars in standard format
     """
+    # Allow overriding API URL/key (used by Widesurf V2 variant)
+    api_url = api_url or WIDESURF_API_URL
+    api_key = api_key or WIDESURF_API_KEY
     symbol = symbol.upper()
+
+    # Check in-memory cache first (avoids duplicate API calls)
+    cache_key = f"{api_url}:{symbol}:{start_date}:{end_date}:{timeframe}:{target_time}"
+    with _widesurf_cache_lock:
+        if cache_key in _widesurf_cache:
+            cached = _widesurf_cache[cache_key]
+            logger.info(f"Widesurf cache HIT for {symbol} ({len(cached)} bars)")
+            return list(cached)
+
     bars = []
     
     # Map timeframe to Widesurf format
@@ -527,55 +515,93 @@ def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, time
     # Time-sampled: GET /v1/aggs/ticker/{ticker}/range/1/minute/{from}/{to}/{target_time}
     # IMPORTANT: Time-sampled endpoint ALWAYS uses "minute" as timespan, regardless of timeframe
     if target_time:
-        url = f"{WIDESURF_API_URL}/v1/aggs/ticker/{symbol}/range/1/minute/{start_date}/{end_date}/{target_time}"
+        url = f"{api_url}/v1/aggs/ticker/{symbol}/range/1/minute/{start_date}/{end_date}/{target_time}"
     else:
-        url = f"{WIDESURF_API_URL}/v1/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start_date}/{end_date}"
+        url = f"{api_url}/v1/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start_date}/{end_date}"
     params = {
-        "apiKey": WIDESURF_API_KEY,
+        "apiKey": api_key,
         "adjusted": "true",
         "sort": "asc",
         "limit": 50000  # Get as many bars as possible
     }
     
     logger.info(f"Fetching from Widesurf API: {symbol} {timeframe} {start_date} to {end_date}{' @' + target_time if target_time else ''}")
-    
-    try:
-        resp = requests.get(url, params=params, timeout=60)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            results = data.get("results", [])
-            
-            for bar in results:
-                # Convert Widesurf format to our standard format
-                # Widesurf returns: o, h, l, c, v, vw (VWAP), t (timestamp in ms)
-                timestamp_ms = bar.get("t", 0)
-                
-                # Convert timestamp from ms to ISO format
-                if timestamp_ms:
-                    dt = datetime.utcfromtimestamp(timestamp_ms / 1000)
-                    timestamp_str = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-                else:
-                    timestamp_str = ""
-                
-                bars.append({
-                    "t": timestamp_str,
-                    "o": bar.get("o", 0),
-                    "h": bar.get("h", 0),
-                    "l": bar.get("l", 0),
-                    "c": bar.get("c", 0),
-                    "v": bar.get("v", 0),
-                    "vw": bar.get("vw", 0)  # VWAP
-                })
-            
-            logger.info(f"Widesurf returned {len(bars)} bars for {symbol}")
-        else:
-            logger.error(f"Widesurf API error: status {resp.status_code}, response: {resp.text[:500]}")
-            
-    except Exception as e:
-        logger.error(f"Widesurf API request failed: {e}")
-    
+
+    # Select semaphore and timeout based on API target
+    is_v2 = (api_url == WIDESURF_V2_API_URL)
+    sem = _WIDESURF_V2_SEMAPHORE if is_v2 else _WIDESURF_SEMAPHORE
+    req_timeout = 60 if is_v2 else 60
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with sem:
+                resp = _widesurf_session.get(url, params=params, timeout=req_timeout)
+
+            if resp.status_code == 200:
+                data = resp.json()
+                results = data.get("results") or []
+
+                for bar in results:
+                    # Convert Widesurf format to our standard format
+                    # Widesurf returns: o, h, l, c, v, vw (VWAP), t (timestamp in ms)
+                    timestamp_ms = bar.get("t", 0)
+
+                    # Convert timestamp from ms to ISO format
+                    if timestamp_ms:
+                        dt = datetime.utcfromtimestamp(timestamp_ms / 1000)
+                        timestamp_str = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    else:
+                        timestamp_str = ""
+
+                    bars.append({
+                        "t": timestamp_str,
+                        "o": bar.get("o", 0),
+                        "h": bar.get("h", 0),
+                        "l": bar.get("l", 0),
+                        "c": bar.get("c", 0),
+                        "v": bar.get("v", 0),
+                        "vw": bar.get("vw", 0)  # VWAP
+                    })
+
+                logger.info(f"Widesurf returned {len(bars)} bars for {symbol}")
+                break  # Success — exit retry loop
+            else:
+                logger.error(f"Widesurf API error: status {resp.status_code}, response: {resp.text[:500]}")
+                break  # Non-retryable HTTP error
+
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait_secs = (0.1 * (2 ** attempt)) if is_v2 else (2 ** attempt)  # V2: 0.1s, 0.2s | V1: 1s, 2s
+                logger.warning(f"Widesurf API request failed for {symbol} (attempt {attempt+1}/{max_retries}): {e}. Retrying in {wait_secs}s...")
+                time.sleep(wait_secs)
+            else:
+                logger.error(f"Widesurf API request failed for {symbol} after {max_retries} attempts: {e}")
+
+    # Store successful results in cache (with size limit to prevent OOM)
+    if bars:
+        with _widesurf_cache_lock:
+            # Simple eviction: if cache grows too large, clear half of it
+            # 300 stocks × 3 VWAP calls = 900 entries, so threshold must be above that
+            if len(_widesurf_cache) > 2000:
+                logger.info("Widesurf cache threshold reached, clearing to free memory")
+                _widesurf_cache.clear()
+            _widesurf_cache[cache_key] = list(bars)
+
     return bars
+
+
+def fetch_prices_from_widesurf_v2(symbol: str, start_date: str, end_date: str, timeframe: str = "1Min", target_time: str = None) -> list:
+    """Fetch historical price data from Widesurf API V2 (port 8090)."""
+    return fetch_prices_from_widesurf(symbol, start_date, end_date, timeframe, target_time,
+                                       api_url=WIDESURF_V2_API_URL, api_key=WIDESURF_V2_API_KEY)
+
+
+def _get_widesurf_fetcher(data_source: str):
+    """Return the appropriate Widesurf fetch function for the given data source."""
+    if data_source == "widesurf_v2":
+        return fetch_prices_from_widesurf_v2
+    return fetch_prices_from_widesurf
 
 
 def fetch_prices_universal(symbol: str, start_date: str, end_date: str, timeframe: str = "1Min", data_source: str = "alpaca") -> list:
@@ -592,8 +618,8 @@ def fetch_prices_universal(symbol: str, start_date: str, end_date: str, timefram
     Returns:
         List of price bars
     """
-    if data_source == "widesurf":
-        return fetch_prices_from_widesurf(symbol, start_date, end_date, timeframe)
+    if _is_widesurf_source(data_source):
+        return _get_widesurf_fetcher(data_source)(symbol, start_date, end_date, timeframe)
     else:
         # Use the existing Alpaca API via fetch_and_cache_prices
         return fetch_and_cache_prices(symbol, start_date, end_date, timeframe)
@@ -616,12 +642,45 @@ _IO_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
     max_workers=200, thread_name_prefix="io"
 )
 
-# Dedicated single-thread executor for GPU work.
-# CuPy/CUDA is not thread-safe across multiple threads — serialise all GPU
-# calls through one thread so the GPU stays busy without context-switching.
+# Dedicated executor for GPU work.
+# Two threads allow pipelining: while one stock's trade log generates on CPU,
+# the next stock's grid search can run on GPU.
 _GPU_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
-    max_workers=1, thread_name_prefix="gpu"
+    max_workers=2, thread_name_prefix="gpu"
 )
+
+# ── Rate Limiting & In-Memory Cache ────────────────────────────────────────────
+import threading
+from requests.adapters import HTTPAdapter
+
+# Limit concurrent Widesurf/external API calls to prevent overwhelming the local
+# Widesurf server.  20 concurrent connections caused "Connection aborted" errors
+# on large batches (280+ stocks).  8 keeps throughput high while staying stable.
+_WIDESURF_SEMAPHORE = threading.Semaphore(8)
+
+# Widesurf V2 (Go server) can handle higher concurrency — 20 slots.
+# Keep moderate to avoid TCP TIME_WAIT exhaustion on long 300+ stock runs.
+_WIDESURF_V2_SEMAPHORE = threading.Semaphore(20)
+
+# Connection-pooled HTTP session for Widesurf API calls.
+# Reuses TCP connections across requests instead of opening a new one each time.
+_widesurf_session = requests.Session()
+_widesurf_session.mount("http://", HTTPAdapter(pool_connections=20, pool_maxsize=80))
+_widesurf_session.mount("https://", HTTPAdapter(pool_connections=20, pool_maxsize=80))
+
+# In-memory cache for Widesurf API responses within a single server lifetime.
+# Prevents duplicate API calls (optimize_stock fetches bars, then
+# generate_trade_log fetches same bars again for the same stock).
+_widesurf_cache = {}
+_widesurf_cache_lock = threading.Lock()
+
+# Background clear-all cache jobs (prevents UI freeze on heavy cache operations)
+_CACHE_CLEAR_LOCK_TIMEOUT_MS = int(os.getenv("CACHE_CLEAR_LOCK_TIMEOUT_MS", "2000"))
+_CACHE_CLEAR_MAX_LOCK_RETRIES = int(os.getenv("CACHE_CLEAR_MAX_LOCK_RETRIES", "180"))
+_CACHE_CLEAR_RETRY_SLEEP_SECONDS = float(os.getenv("CACHE_CLEAR_RETRY_SLEEP_SECONDS", "1.0"))
+_CACHE_CLEAR_JOB_RETENTION_SECONDS = int(os.getenv("CACHE_CLEAR_JOB_RETENTION_SECONDS", "3600"))
+_cache_clear_jobs: Dict[str, dict] = {}
+_cache_clear_jobs_lock = threading.Lock()
 
 # Import and register routers
 from routers.api_tester import router as api_tester_router
@@ -858,12 +917,17 @@ async def get_api_keys_api():
                 "key_id": "",
                 "secret_key": config.WIDESURF_API_KEY,
                 "base_url": config.WIDESURF_API_URL
+            },
+            "WIDESURF_V2": {
+                "key_id": "",
+                "secret_key": config.WIDESURF_V2_API_KEY,
+                "base_url": config.WIDESURF_V2_API_URL
             }
         }
-        
+
         # Merge DB keys with defaults
         final_keys = {}
-        providers = ["ALPACA", "MASSIVE", "WIDESURF"]
+        providers = ["ALPACA", "MASSIVE", "WIDESURF", "WIDESURF_V2"]
         
         for provider in providers:
             db_data = db_keys.get(provider, {})
@@ -929,7 +993,8 @@ class OptimizationRequest(BaseModel):
     smart_timing: bool = False  # Enable optimal buy time optimization
     timing_approach: str = "sequential"  # "sequential" or "joint"
     algo: str = "default"  # "default" or "chatgpt"
-    data_source: str = "widesurf"  # "alpaca" or "widesurf" (widesurf has more historical data)
+    data_source: str = "widesurf"  # "alpaca", "widesurf", or "widesurf_v2"
+    partial: bool = False  # Skip already processed stocks
 
 
 class StockVolatilityAnalyzer:
@@ -982,11 +1047,7 @@ class StockVolatilityAnalyzer:
 
 
 def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: float, compound: bool, capital: float = 100000, algo: str = "default", symbol: str = None, start_date: str = None, end_date: str = None, stop_loss_pct: float = None, trailing_stop_pct: float = None, data_source: str = "alpaca") -> list:
-    # #region agent log
-    import json as _json
-    with open("/app/debug.log", "a") as _f:
-        _f.write(_json.dumps({"hypothesisId": "H0", "location": "server.py:764", "message": "generate_trade_log ENTRY", "data": {"symbol": symbol, "algo": algo, "num_bars": len(bars) if bars else 0, "start": start_date, "end": end_date}, "timestamp": int(__import__("time").time()*1000)}) + "\n")
-    # #endregion
+
     """
     Generate a day-by-day trade log for the Analysis view with buy/sell guidance.
     
@@ -1024,14 +1085,14 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
             logger.info(f"Fetching 10AM prices for {symbol} (algo: {algo}, source: {data_source})")
             
             intraday_bars = []
-            if data_source == "widesurf":
+            if _is_widesurf_source(data_source):
                 # Use Widesurf's optimized "Exact Time" API
-                # fetch_prices_from_widesurf is sync/uses requests, so we can call it directly
-                
+                fetcher = _get_widesurf_fetcher(data_source)
+
                 # 1. Fetch 10:00 AM aggregates (gives price_10am, VWAP, OR)
-                bars_1000 = fetch_prices_from_widesurf(symbol, start_date, end_date, "1Day", "1000")
+                bars_1000 = fetcher(symbol, start_date, end_date, "1Day", "1000")
                 # 2. Fetch 9:40 AM aggregates (for vwap_slope)
-                bars_0940 = fetch_prices_from_widesurf(symbol, start_date, end_date, "1Day", "0940")
+                bars_0940 = fetcher(symbol, start_date, end_date, "1Day", "0940")
                 
                 # Create lookup for 9:40 VWAP
                 vwap_940_lookup = {b["t"][:10]: b.get("vw", b.get("c", 0)) for b in bars_0940}
@@ -1056,11 +1117,7 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
                 intraday_bars = fetch_and_cache_prices(symbol, start_date, end_date, "1Min")
 
             
-            # #region agent log
-            import json as _json
-            with open("/app/debug.log", "a") as _f:
-                _f.write(_json.dumps({"hypothesisId": "H1", "location": "server.py:776", "message": "fetch_and_cache_prices returned", "data": {"symbol": symbol, "start": start_date, "end": end_date, "num_bars": len(intraday_bars) if intraday_bars else 0, "sample_bars": [str(b.get("t", ""))[:25] for b in (intraday_bars or [])[:5]]}, "timestamp": int(__import__("time").time()*1000)}) + "\n")
-            # #endregion
+
             
             if intraday_bars:
                 # Group bars by date first
@@ -1152,10 +1209,7 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
                         "or_low": or_low
                     }
                 
-                # #region agent log
-                with open("/app/debug.log", "a") as _f:
-                    _f.write(_json.dumps({"hypothesisId": "H2", "location": "server.py:802", "message": "price_10am_map built", "data": {"num_dates": len(price_9am_map), "sample_dates": list(price_9am_map.keys())[:5], "sample_prices": list(price_9am_map.values())[:5]}, "timestamp": int(__import__("time").time()*1000)}) + "\n")
-                # #endregion
+
                 
                 logger.info(f"Found 10AM prices for {len(price_9am_map)} days from cache")
             else:
@@ -1928,15 +1982,15 @@ async def optimize_stock(
     
     # Get data source for status messages
     data_source = getattr(config, 'data_source', 'widesurf')
-    data_source_label = "Widesurf API" if data_source == "widesurf" else "Alpaca API"
-    
-    if need_download or data_source == "widesurf":
+    data_source_label = _get_widesurf_label(data_source) if _is_widesurf_source(data_source) else "Alpaca API"
+
+    if need_download or _is_widesurf_source(data_source):
         await broadcast_message({
             "type": "status",
             "job_id": job_id,
             "symbol": symbol,
             "status": "downloading_data",
-            "message": f"Fetching {symbol} from {data_source_label}..." if data_source == "widesurf" else download_msg
+            "message": f"Fetching {symbol} from {data_source_label}..." if _is_widesurf_source(data_source) else download_msg
         })
     else:
         await broadcast_message({
@@ -1953,31 +2007,34 @@ async def optimize_stock(
         data_source = getattr(config, 'data_source', 'widesurf')
         
         loop = asyncio.get_event_loop()
-        if data_source == "widesurf":
-            # Use Widesurf API directly
-            bars = await loop.run_in_executor(None, fetch_prices_from_widesurf, symbol, config.start_date, config.end_date, "1Day")
+        if _is_widesurf_source(data_source):
+            # Use Widesurf API directly (V1 or V2)
+            fetcher = _get_widesurf_fetcher(data_source)
+            bars = await loop.run_in_executor(_IO_EXECUTOR, fetcher, symbol, config.start_date, config.end_date, "1Day")
             if not bars:
-                logger.warning(f"Widesurf returned no data for {symbol}, trying cache")
-                bars = await loop.run_in_executor(None, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Day")
+                logger.warning(f"{_get_widesurf_label(data_source)} returned no data for {symbol}, trying cache")
+                bars = await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Day")
         else:
             # Use the cached system for Alpaca API
-            bars = await loop.run_in_executor(None, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Day")
+            bars = await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Day")
         
         # Fallback to direct API if cache fails
         if not bars:
-            logger.warning(f"Cache miss for {symbol}, fetching directly")
-            resp = requests.get(
-                f"{PPOALGO_API}/api/prices",
-                params={
-                    "symbol": symbol,
-                    "start": config.start_date,
-                    "end": config.end_date,
-                    "timeframe": "1Day"
-                },
-                timeout=30
-            )
-            resp.raise_for_status()
-            bars = resp.json()
+            logger.warning(f"Cache miss for {symbol}, fetching from backend API")
+            def _fetch_from_api():
+                resp = requests.get(
+                    f"{PPOALGO_API}/api/prices",
+                    params={
+                        "symbol": symbol,
+                        "start": config.start_date,
+                        "end": config.end_date,
+                        "timeframe": "1Day"
+                    },
+                    timeout=30
+                )
+                resp.raise_for_status()
+                return resp.json()
+            bars = await loop.run_in_executor(_IO_EXECUTOR, _fetch_from_api)
     except Exception as e:
         await broadcast_message({
             "type": "error",
@@ -2065,13 +2122,14 @@ async def optimize_stock(
                 })
                 
                 # Fetch 10 AM prices from intraday cache using optimized API if possible
-                if data_source == "widesurf":
-                    logger.info(f"Using optimized Widesurf Time-Sampled API for {symbol} 10am price")
-                    bars_1000 = await loop.run_in_executor(None, fetch_prices_from_widesurf, symbol, config.start_date, config.end_date, "1Day", "1000")
+                if _is_widesurf_source(data_source):
+                    fetcher = _get_widesurf_fetcher(data_source)
+                    logger.info(f"Using optimized {_get_widesurf_label(data_source)} Time-Sampled API for {symbol} 10am price")
+                    bars_1000 = await loop.run_in_executor(_IO_EXECUTOR, fetcher, symbol, config.start_date, config.end_date, "1Day", "1000")
                     price_10am_map = {b["t"][:10]: b.get("c", 0) for b in bars_1000}
                 else:
-                    intraday_bars = await loop.run_in_executor(None, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Min")
-                    
+                    intraday_bars = await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Min")
+
                     # Build map of date -> 10 AM price (find exact 10AM bar)
                     price_10am_map = {}
                     bars_by_date = {}
@@ -2082,7 +2140,7 @@ async def optimize_stock(
                             if date_part not in bars_by_date:
                                 bars_by_date[date_part] = []
                             bars_by_date[date_part].append(bar)
-                    
+
                     for date_part, day_bars in bars_by_date.items():
                         best_10am_bar = None
                         best_10am_diff = 9999
@@ -2158,12 +2216,13 @@ async def optimize_stock(
                 })
                 
                 # Fetch 10 AM prices from intraday cache using optimized API if possible
-                if data_source == "widesurf":
-                    logger.info(f"Using optimized Widesurf Time-Sampled API for {symbol} 10am price (Stop Loss)")
-                    bars_1000 = await loop.run_in_executor(None, fetch_prices_from_widesurf, symbol, config.start_date, config.end_date, "1Day", "1000")
+                if _is_widesurf_source(data_source):
+                    fetcher = _get_widesurf_fetcher(data_source)
+                    logger.info(f"Using optimized {_get_widesurf_label(data_source)} Time-Sampled API for {symbol} 10am price (Stop Loss)")
+                    bars_1000 = await loop.run_in_executor(_IO_EXECUTOR, fetcher, symbol, config.start_date, config.end_date, "1Day", "1000")
                     price_10am_map = {b["t"][:10]: b.get("c", 0) for b in bars_1000}
                 else:
-                    intraday_bars = await loop.run_in_executor(None, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Min")
+                    intraday_bars = await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Min")
                     
                     # Build map of date -> 10 AM price (find exact 10AM bar)
                     price_10am_map = {}
@@ -2381,23 +2440,24 @@ async def optimize_stock(
                 })
                 
                 # Fetch intraday data for 10AM prices and VWAP using optimized "exact time" API if using Widesurf
-                if data_source == "widesurf":
-                    logger.info(f"Using optimized Widesurf Time-Sampled API for {symbol}")
+                if _is_widesurf_source(data_source):
+                    fetcher = _get_widesurf_fetcher(data_source)
+                    logger.info(f"Using optimized {_get_widesurf_label(data_source)} Time-Sampled API for {symbol}")
                     # Try the time-sampled endpoints but with a shorter timeout
                     bars_1000 = []
                     bars_0940 = []
                     try:
                         bars_1000 = await asyncio.wait_for(
-                            loop.run_in_executor(None, fetch_prices_from_widesurf, symbol, config.start_date, config.end_date, "1Day", "1000"),
+                            loop.run_in_executor(_IO_EXECUTOR, fetcher, symbol, config.start_date, config.end_date, "1Day", "1000"),
                             timeout=15
                         )
                     except (asyncio.TimeoutError, Exception) as e:
                         logger.warning(f"Time-sampled 10AM API failed for {symbol}: {e} — will estimate from daily bars")
-                    
+
                     if bars_1000:
                         try:
                             bars_0940 = await asyncio.wait_for(
-                                loop.run_in_executor(None, fetch_prices_from_widesurf, symbol, config.start_date, config.end_date, "1Day", "0940"),
+                                loop.run_in_executor(_IO_EXECUTOR, fetcher, symbol, config.start_date, config.end_date, "1Day", "0940"),
                                 timeout=15
                             )
                         except (asyncio.TimeoutError, Exception) as e:
@@ -2424,7 +2484,7 @@ async def optimize_stock(
                         }
                 else:
                     # Legacy fallback for other data sources (heavy download)
-                    intraday_bars = await loop.run_in_executor(None, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Min")
+                    intraday_bars = await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices, symbol, config.start_date, config.end_date, "1Min")
                     
                     # Build map of date -> {price_10am, vwap, vwap_940, or_high, or_low}
                     vwap_data_map = {}
@@ -2709,7 +2769,7 @@ async def optimize_stock(
                 
                 # Get optimal timing (CPU heavy)
                 loop = asyncio.get_event_loop()
-                optimal_time = await loop.run_in_executor(None, get_optimal_buy_time_simple, symbol, config.optimization_metric)
+                optimal_time = await loop.run_in_executor(_IO_EXECUTOR, get_optimal_buy_time_simple, symbol, config.optimization_metric)
                 
                 result["optimal_buy_time_cdt"] = optimal_time
                 result["best_params"]["optimal_buy_time_cdt"] = optimal_time
@@ -2738,7 +2798,7 @@ async def optimize_stock(
             if bt_start != config.start_date or bt_end != config.end_date:
                 logger.info(f"Fetching price data for backtest range: {bt_start} to {bt_end}")
                 loop = asyncio.get_event_loop()
-                backtest_bars = await loop.run_in_executor(None, fetch_and_cache_prices, symbol, bt_start, bt_end)
+                backtest_bars = await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices, symbol, bt_start, bt_end)
                 trade_log_bars = backtest_bars if backtest_bars else bars
             else:
                 trade_log_bars = bars
@@ -2767,7 +2827,8 @@ async def optimize_stock(
                 bt_start,
                 bt_end,
                 result["best_params"].get("stop_loss_pct"),
-                result["best_params"].get("trailing_stop_pct")
+                result["best_params"].get("trailing_stop_pct"),
+                data_source
             )
             result["backtest_start_date"] = bt_start
             result["backtest_end_date"] = bt_end
@@ -2795,8 +2856,8 @@ async def optimize_stock(
                 "message": f"Saving results ({len(result.get('trade_log', []))} trades)..."
             })
             
-            # Save result to database
-            history_id = save_result_to_db(job_id, result)
+            # Save result to database (Move to executor to avoid blocking event loop)
+            history_id = await loop.run_in_executor(None, save_result_to_db, job_id, result)
             result["history_id"] = history_id  # Add to result for frontend
             
             await broadcast_message({
@@ -2990,7 +3051,7 @@ async def optimize_stock(
     # If backtest dates differ, fetch new price data for backtest range
     if bt_start != config.start_date or bt_end != config.end_date:
         logger.info(f"Fetching price data for backtest range: {bt_start} to {bt_end}")
-        backtest_bars = await loop.run_in_executor(None, fetch_and_cache_prices, symbol, bt_start, bt_end)
+        backtest_bars = await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices, symbol, bt_start, bt_end)
         trade_log_bars = backtest_bars if backtest_bars else bars
     else:
         trade_log_bars = bars
@@ -3028,8 +3089,8 @@ async def optimize_stock(
         result["metrics"]["total_trades"] = len(bought_trades)
         logger.info(f"[{symbol}] Backtest metrics: win={bt_win_rate:.1%}, ret={bt_total_return:.1%}, equity=${last_equity:,.0f}")
     
-    # Save result to database
-    history_id = save_result_to_db(job_id, result)
+    # Save result to database (Move to executor to avoid blocking event loop)
+    history_id = await loop.run_in_executor(None, save_result_to_db, job_id, result)
     result["history_id"] = history_id  # Add to result for frontend
     
     await broadcast_message({
@@ -3102,6 +3163,58 @@ async def start_optimization(request: OptimizationRequest):
     # Save job to database
     save_job_to_db(job_id, request)
     
+    # Check for already processed stocks if partial optimization is enabled
+    if request.partial:
+        from database import get_db_conn, release_db_conn
+        conn = get_db_conn()
+        processed_symbols = []
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    # Find all symbols already processed with matching algo + data_source.
+                    # Intentionally NOT matching on n_trials / start_date / end_date so that
+                    # "Partial Optimization" skips any stock that has been run at all with
+                    # the same strategy, letting the user resume an interrupted batch run.
+                    cur.execute("""
+                        SELECT DISTINCT symbol FROM optimizer_results
+                        WHERE full_result->>'algo' = %s
+                          AND full_result->>'data_source' = %s
+                    """, (
+                        request.algo,
+                        request.data_source
+                    ))
+                    processed_symbols = [row[0] for row in cur.fetchall()]
+            except Exception as e:
+                logger.error(f"Failed to check processed symbols: {e}")
+            finally:
+                release_db_conn(conn)
+
+        # Build the full keyword list server-side so callers only need to send the keyword
+        # (frontend still sends the expanded list, but we accept either form)
+        all_requested = list(dict.fromkeys([s.upper() for s in request.symbols]))
+        already_done = set(p.upper() for p in processed_symbols)
+        remaining = [s for s in all_requested if s not in already_done]
+        skipped_count = len(all_requested) - len(remaining)
+
+        if skipped_count > 0:
+            request.symbols = remaining
+            logger.info(f"Partial Optimization: Skipping {skipped_count} already processed stocks. Remaining: {len(remaining)}")
+
+            asyncio.create_task(broadcast_message({
+                "type": "status",
+                "job_id": job_id,
+                "message": f"⏭️ Partial Optimization: Skipping {skipped_count} already processed stocks, running {len(remaining)} remaining..."
+            }))
+            
+            if not request.symbols:
+                asyncio.create_task(broadcast_message({
+                    "type": "job_complete",
+                    "job_id": job_id,
+                    "results": {},
+                    "message": "✅ All stocks were already processed. Nothing to do!"
+                }))
+                return {"job_id": job_id, "symbols": [], "status": "completed", "message": "All stocks already processed"}
+
     # Run optimization in background using a Hybrid Dual-Engine Worker Pool
     async def run_all():
         results = {}
@@ -3109,18 +3222,97 @@ async def start_optimization(request: OptimizationRequest):
         request.symbols = list(dict.fromkeys(request.symbols))
         total_count = len(request.symbols)
         completed_count = 0
-        
+
+        # ── Phase 1: Pre-fetch ALL price data with controlled concurrency ──────
+        # This is critical for performance: download all data BEFORE starting
+        # optimization workers so they never block waiting on API calls.
+        # The _WIDESURF_SEMAPHORE inside fetch_prices_from_widesurf limits
+        # concurrent HTTP requests to prevent API rate-limit throttling.
+        logger.info(f"Phase 1: Pre-fetching price data for {total_count} stocks...")
+        await broadcast_message({
+            "type": "status",
+            "job_id": job_id,
+            "message": f"⚡ Pre-fetching price data for {total_count} stocks..."
+        })
+
+        loop = asyncio.get_event_loop()
+        data_source = getattr(request, 'data_source', 'widesurf')
+        algo_type = getattr(request, 'algo', 'default') or 'default'
+        prefetch_done = [0]
+
+        _VWAP_ALGOS = ("chatgpt", "chatgpt_stoploss", "chatgpt_vwap", "chatgpt_vwap_rust")
+
+        async def prefetch_one(sym):
+            """Pre-fetch all required data for one stock (daily + intraday if needed)."""
+            try:
+                if _is_widesurf_source(data_source):
+                    fetcher = _get_widesurf_fetcher(data_source)
+                    needs_vwap = algo_type in _VWAP_ALGOS
+
+                    if data_source == "widesurf_v2" and needs_vwap:
+                        # V2 (Go server): fire all 3 requests in parallel
+                        await asyncio.gather(
+                            loop.run_in_executor(_IO_EXECUTOR, fetcher,
+                                sym, request.start_date, request.end_date, "1Day"),
+                            loop.run_in_executor(_IO_EXECUTOR, fetcher,
+                                sym, request.start_date, request.end_date, "1Day", "1000"),
+                            loop.run_in_executor(_IO_EXECUTOR, fetcher,
+                                sym, request.start_date, request.end_date, "1Day", "0940"),
+                        )
+                    else:
+                        # V1: sequential to avoid overwhelming the server
+                        await loop.run_in_executor(_IO_EXECUTOR, fetcher,
+                            sym, request.start_date, request.end_date, "1Day")
+                        if needs_vwap:
+                            await loop.run_in_executor(_IO_EXECUTOR, fetcher,
+                                sym, request.start_date, request.end_date, "1Day", "1000")
+                            await loop.run_in_executor(_IO_EXECUTOR, fetcher,
+                                sym, request.start_date, request.end_date, "1Day", "0940")
+                else:
+                    await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices,
+                        sym, request.start_date, request.end_date, "1Day")
+            except Exception as e:
+                logger.warning(f"Pre-fetch failed for {sym}: {e}")
+
+            prefetch_done[0] += 1
+            if prefetch_done[0] % 10 == 0 or prefetch_done[0] == total_count:
+                await broadcast_message({
+                    "type": "job_progress",
+                    "job_id": job_id,
+                    "completed": prefetch_done[0],
+                    "total": total_count,
+                    "message": f"📥 Downloaded data: {prefetch_done[0]}/{total_count} stocks"
+                })
+
+        # Launch pre-fetches — batch in chunks for V2 to avoid TCP exhaustion
+        # on 300+ stock runs (TIME_WAIT socket buildup causes slowdowns).
+        if data_source == "widesurf_v2":
+            BATCH_SIZE = 40
+            for batch_start in range(0, total_count, BATCH_SIZE):
+                batch = request.symbols[batch_start:batch_start + BATCH_SIZE]
+                await asyncio.gather(*[prefetch_one(s) for s in batch])
+                # Brief pause between batches to let TCP connections recycle
+                if batch_start + BATCH_SIZE < total_count:
+                    await asyncio.sleep(0.3)
+        else:
+            # V1 / Alpaca: fire all at once, semaphore handles rate limiting
+            await asyncio.gather(*[prefetch_one(s) for s in request.symbols])
+        logger.info(f"Phase 1 complete: Pre-fetched data for {total_count} stocks")
+        await broadcast_message({
+            "type": "status",
+            "job_id": job_id,
+            "message": f"✅ Data loaded. Starting optimization for {total_count} stocks..."
+        })
+
+        # ── Phase 2: Run optimization (data already cached) ────────────────────
         async def worker(worker_id, work_queue, engine_type='cpu'):
             nonlocal completed_count
             logger.info(f"Worker {worker_id} ({engine_type}) started")
             while True:
                 if is_job_cancelled(job_id): break
-                # Use get() with timeout instead of empty() check to avoid
-                # race condition where queue appears empty mid-flight
                 try:
                     symbol = await asyncio.wait_for(work_queue.get(), timeout=2.0)
                 except asyncio.TimeoutError:
-                    # No more items — exit gracefully
                     break
                 try:
                     start_time = time.time()
@@ -3128,7 +3320,6 @@ async def start_optimization(request: OptimizationRequest):
                     res = await optimize_stock(symbol, request, job_id, engine_override=engine_type)
                     duration = time.time() - start_time
                     if res:
-                        # optimize_stock already saves to DB and broadcasts 'complete'
                         results[symbol] = res
                         optimization_results[symbol] = res
                         logger.info(f"Worker {worker_id} ({engine_type}) finished {symbol} in {duration:.2f}s")
@@ -3138,35 +3329,46 @@ async def start_optimization(request: OptimizationRequest):
                     completed_count += 1
                     work_queue.task_done()
 
-                    # Periodic progress updates
-                    if completed_count % 5 == 0 or completed_count == total_count:
-                        await broadcast_message({
-                            "type": "job_progress",
-                            "job_id": job_id,
-                            "completed": completed_count,
-                            "total": total_count,
-                            "message": f"Global progress: {completed_count}/{total_count} stocks done"
-                        })
+                    await broadcast_message({
+                        "type": "job_progress",
+                        "job_id": job_id,
+                        "completed": completed_count,
+                        "total": total_count,
+                        "symbol": symbol,
+                        "success": bool(res),
+                        "message": f"🔄 Optimized: {completed_count}/{total_count} stocks"
+                    })
+                    if completed_count % 10 == 0 or completed_count == total_count:
                         logger.info(f"Job {job_id} progress: {completed_count}/{total_count} ({engine_type} worker {worker_id} finished {symbol})")
                 except Exception as e:
                     logger.error(f"Worker {worker_id} error: {e}")
+                    completed_count += 1
+                    await broadcast_message({
+                        "type": "job_progress",
+                        "job_id": job_id,
+                        "completed": completed_count,
+                        "total": total_count,
+                        "symbol": symbol,
+                        "success": False,
+                        "message": f"🔄 Optimized: {completed_count}/{total_count} stocks"
+                    })
                     work_queue.task_done()
 
         workers = []
 
-        # Auto-enable GPU when hardware is available — don't require the user checkbox.
-        # request.use_gpu=False only forces CPU-only mode explicitly.
+        # Auto-enable GPU when hardware is available.
         use_gpu_dispatch = GPU_BACKTEST_AVAILABLE and (request.use_gpu is not False)
 
+        # Worker count: 32 CPU workers for a 32-core machine.
+        # - API data is pre-fetched (no I/O blocking during optimization)
+        # - Each worker does CPU-bound compute (Rust/GPU/Optuna)
+        # - Increased from 12 to 30 to saturate all cores for massive stock lists.
+        n_cpu_workers = min(30, max(4, total_count))
+
         if use_gpu_dispatch:
-            # Dual-queue hybrid: all stocks go to GPU queue; CPU workers act as overflow/fallback.
-            # GPU processes one stock at a time with full vectorized grid search (much faster per stock).
-            # CPU workers run remaining stocks in parallel using Rust/Python.
             gpu_queue = asyncio.Queue()
             cpu_queue = asyncio.Queue()
-            # GPU gets ALL stocks — it processes them sequentially but each stock is blazing fast.
-            # CPU queue handles overflow while GPU is busy.
-            gpu_share = max(1, int(total_count * 0.6))  # 60% to GPU worker
+            gpu_share = max(1, int(total_count * 0.4))
             symbols_list = list(request.symbols)
 
             for i, s in enumerate(symbols_list):
@@ -3175,40 +3377,38 @@ async def start_optimization(request: OptimizationRequest):
                 else:
                     cpu_queue.put_nowait(s)
 
-            logger.info(f"Hybrid dispatch (auto-GPU): GPU={gpu_share} stocks, CPU={total_count - gpu_share} stocks")
+            logger.info(f"Hybrid dispatch: GPU={gpu_share} stocks (2 workers), CPU={total_count - gpu_share} stocks ({n_cpu_workers} workers)")
 
-            # 1 GPU Worker processing its dedicated queue
             workers.append(asyncio.create_task(worker("GPU-1", gpu_queue, engine_type='gpu')))
+            workers.append(asyncio.create_task(worker("GPU-2", gpu_queue, engine_type='gpu')))
 
-            # 50 CPU Workers processing CPU queue (more workers = better I/O overlap)
-            for i in range(50):
+            for i in range(n_cpu_workers):
                 workers.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
         else:
-            # CPU-only mode: single queue
             cpu_queue = asyncio.Queue()
             for s in request.symbols:
                 cpu_queue.put_nowait(s)
 
-            # 50 CPU Workers
-            for i in range(50):
+            for i in range(n_cpu_workers):
                 workers.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
 
-        # Wait for all workers to finish their work in the queues
+        # Wait for all workers to finish
         if use_gpu_dispatch:
             await asyncio.gather(gpu_queue.join(), cpu_queue.join())
         else:
             await cpu_queue.join()
         
-        # Cancel workers once queues are empty
         for w in workers: w.cancel()
         
-        # Save results to file
+        # Clean up the in-memory Widesurf cache to free memory
+        with _widesurf_cache_lock:
+            _widesurf_cache.clear()
+        
         os.makedirs(RESULTS_DIR, exist_ok=True)
         with open(f"{RESULTS_DIR}/{job_id}.json", "w") as f:
             json.dump(results, f, indent=2)
         
-        # Update job status in database
-        update_job_status(job_id, "completed")
+        await loop.run_in_executor(None, update_job_status, job_id, "completed")
         
         await broadcast_message({
             "type": "job_complete",
@@ -3277,6 +3477,280 @@ async def get_analysis(history_id: int):
 
 # NOTE: /api/price-compare endpoint moved to routers/api_tester.py
 # The endpoint is now imported and registered via app.include_router()
+
+
+def _utc_iso() -> str:
+    """UTC timestamp in ISO format with Z suffix."""
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _cleanup_cache_clear_jobs_locked() -> None:
+    """Prune stale completed/failed cache-clear jobs."""
+    cutoff = time.time() - _CACHE_CLEAR_JOB_RETENTION_SECONDS
+    stale_job_ids = []
+    for job_id, job in _cache_clear_jobs.items():
+        if job.get("status") not in {"completed", "failed"}:
+            continue
+        if float(job.get("_updated_ts", time.time())) < cutoff:
+            stale_job_ids.append(job_id)
+
+    for job_id in stale_job_ids:
+        _cache_clear_jobs.pop(job_id, None)
+
+
+def _compute_cache_clear_percent(job: dict) -> float:
+    """Compute a user-facing progress percent for cache clear jobs."""
+    if job.get("status") == "completed":
+        return 100.0
+
+    progress_hint = job.get("progress_hint")
+    if progress_hint is not None and job.get("status") in {"queued", "running"}:
+        return round(min(max(float(progress_hint), 0.0), 99.9), 1)
+
+    estimated_total = int(job.get("estimated_total") or 0)
+    deleted_total = int(job.get("deleted_total") or 0)
+    denominator = max(estimated_total, deleted_total, 1)
+    pct = (deleted_total / denominator) * 100.0
+    if job.get("status") in {"queued", "running"}:
+        pct = min(pct, 99.9)
+    return round(max(0.0, pct), 1)
+
+
+def _serialize_cache_clear_job(job: dict) -> dict:
+    """Return API-safe fields for a cache clear job."""
+    return {
+        "job_id": job.get("job_id"),
+        "status": job.get("status"),
+        "phase": job.get("phase"),
+        "message": job.get("message"),
+        "error": job.get("error"),
+        "created_at": job.get("created_at"),
+        "updated_at": job.get("updated_at"),
+        "started_at": job.get("started_at"),
+        "finished_at": job.get("finished_at"),
+        "estimated_bars": int(job.get("estimated_bars") or 0),
+        "estimated_meta": int(job.get("estimated_meta") or 0),
+        "estimated_total": int(job.get("estimated_total") or 0),
+        "deleted_bars": int(job.get("deleted_bars") or 0),
+        "deleted_meta": int(job.get("deleted_meta") or 0),
+        "deleted_total": int(job.get("deleted_total") or 0),
+        "percent": float(job.get("percent") or 0.0),
+    }
+
+
+def _update_cache_clear_job(job_id: str, **updates) -> None:
+    """Thread-safe cache clear job updates."""
+    with _cache_clear_jobs_lock:
+        job = _cache_clear_jobs.get(job_id)
+        if not job:
+            return
+        job.update(updates)
+        job["updated_at"] = _utc_iso()
+        job["_updated_ts"] = time.time()
+        job["percent"] = _compute_cache_clear_percent(job)
+
+
+def _estimate_table_rows(cur, table_name: str) -> int:
+    """Fast estimate for table row counts from pg_class metadata."""
+    try:
+        cur.execute(
+            "SELECT COALESCE(reltuples, 0)::BIGINT FROM pg_class WHERE oid = %s::regclass",
+            (table_name,),
+        )
+        row = cur.fetchone()
+        return max(int(row[0] or 0), 0) if row else 0
+    except Exception as e:
+        logger.warning(f"Failed to estimate table size for {table_name}: {e}")
+        return 0
+
+
+def _run_clear_all_price_cache_job(job_id: str) -> None:
+    """
+    Background worker that clears all cache tables with TRUNCATE.
+    TRUNCATE is dramatically faster than row-by-row DELETE on large tables.
+    """
+    conn = get_db_conn()
+    if not conn:
+        _update_cache_clear_job(
+            job_id,
+            status="failed",
+            phase="failed",
+            message="Database connection failed",
+            error="Database connection failed",
+            finished_at=_utc_iso(),
+        )
+        return
+
+    deleted_bars = 0
+    deleted_meta = 0
+    estimated_bars = 0
+    estimated_meta = 0
+
+    try:
+        _update_cache_clear_job(
+            job_id,
+            status="running",
+            phase="estimating",
+            message="Estimating cache size...",
+            started_at=_utc_iso(),
+            progress_hint=2.0,
+        )
+
+        with conn.cursor() as cur:
+            estimated_bars = _estimate_table_rows(cur, "price_cache")
+            estimated_meta = _estimate_table_rows(cur, "price_cache_meta")
+
+        _update_cache_clear_job(
+            job_id,
+            estimated_bars=estimated_bars,
+            estimated_meta=estimated_meta,
+            estimated_total=estimated_bars + estimated_meta,
+            phase="waiting_for_lock",
+            message="Waiting for cache lock...",
+            progress_hint=10.0,
+        )
+
+        lock_timeout = f"{_CACHE_CLEAR_LOCK_TIMEOUT_MS}ms"
+        truncated = False
+        for attempt in range(1, _CACHE_CLEAR_MAX_LOCK_RETRIES + 1):
+            try:
+                _update_cache_clear_job(
+                    job_id,
+                    phase="clearing_price_cache",
+                    message="Clearing cached bars...",
+                    progress_hint=min(70.0, 12.0 + attempt * 0.4),
+                )
+                with conn.cursor() as cur:
+                    cur.execute("SET LOCAL lock_timeout = %s", (lock_timeout,))
+                    cur.execute("TRUNCATE TABLE price_cache RESTART IDENTITY")
+                conn.commit()
+
+                deleted_bars = estimated_bars
+                _update_cache_clear_job(
+                    job_id,
+                    phase="clearing_metadata",
+                    message="Clearing cache metadata...",
+                    deleted_bars=deleted_bars,
+                    deleted_total=deleted_bars + deleted_meta,
+                    progress_hint=85.0,
+                )
+                with conn.cursor() as cur:
+                    cur.execute("SET LOCAL lock_timeout = %s", (lock_timeout,))
+                    cur.execute("TRUNCATE TABLE price_cache_meta RESTART IDENTITY")
+                conn.commit()
+                deleted_meta = estimated_meta
+                truncated = True
+                break
+            except Exception as e:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                err_text = str(e).lower()
+                if "lock timeout" in err_text or "canceling statement due to lock timeout" in err_text:
+                    _update_cache_clear_job(
+                        job_id,
+                        phase="waiting_for_lock",
+                        message=f"Waiting for active cache readers/writers... ({attempt}/{_CACHE_CLEAR_MAX_LOCK_RETRIES})",
+                        progress_hint=min(79.0, 10.0 + attempt * 0.35),
+                    )
+                    time.sleep(_CACHE_CLEAR_RETRY_SLEEP_SECONDS)
+                    continue
+                raise
+
+        if not truncated:
+            raise RuntimeError(
+                f"Could not acquire cache table lock after {_CACHE_CLEAR_MAX_LOCK_RETRIES} attempts"
+            )
+
+        _update_cache_clear_job(
+            job_id,
+            status="completed",
+            phase="completed",
+            message=f"All cache cleared (estimated {deleted_bars:,} bars, {deleted_meta:,} symbols)",
+            deleted_bars=deleted_bars,
+            deleted_meta=deleted_meta,
+            deleted_total=deleted_bars + deleted_meta,
+            finished_at=_utc_iso(),
+            progress_hint=100.0,
+        )
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        logger.exception(f"Failed to clear all cache in background job {job_id}: {e}")
+        _update_cache_clear_job(
+            job_id,
+            status="failed",
+            phase="failed",
+            message=f"Cache clear failed: {e}",
+            error=str(e),
+            deleted_bars=deleted_bars,
+            deleted_meta=deleted_meta,
+            deleted_total=deleted_bars + deleted_meta,
+            finished_at=_utc_iso(),
+            progress_hint=None,
+        )
+    finally:
+        release_db_conn(conn)
+
+
+@app.post("/api/price-cache/clear-all")
+async def start_clear_all_price_cache():
+    """Start async clear-all cache job and return a job_id for polling."""
+    with _cache_clear_jobs_lock:
+        _cleanup_cache_clear_jobs_locked()
+
+        # Avoid running multiple full-table clear jobs in parallel.
+        for existing_job in _cache_clear_jobs.values():
+            if existing_job.get("status") in {"queued", "running"}:
+                payload = _serialize_cache_clear_job(existing_job)
+                payload["message"] = "Cache clear is already running"
+                return payload
+
+        job_id = f"cacheclear_{uuid4().hex[:12]}"
+        now = _utc_iso()
+        _cache_clear_jobs[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "phase": "queued",
+            "message": "Cache clear queued",
+            "error": None,
+            "created_at": now,
+            "updated_at": now,
+            "started_at": None,
+            "finished_at": None,
+            "estimated_bars": 0,
+            "estimated_meta": 0,
+            "estimated_total": 0,
+            "deleted_bars": 0,
+            "deleted_meta": 0,
+            "deleted_total": 0,
+            "progress_hint": 0.0,
+            "percent": 0.0,
+            "_updated_ts": time.time(),
+        }
+
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(_IO_EXECUTOR, _run_clear_all_price_cache_job, job_id)
+
+    return {
+        "job_id": job_id,
+        "status": "started",
+        "message": "Started cache clear job",
+    }
+
+
+@app.get("/api/price-cache/clear-all/{job_id}")
+async def get_clear_all_price_cache_status(job_id: str):
+    """Get status/progress for an async clear-all cache job."""
+    with _cache_clear_jobs_lock:
+        _cleanup_cache_clear_jobs_locked()
+        job = _cache_clear_jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Cache clear job not found: {job_id}")
+        return _serialize_cache_clear_job(job)
 
 
 @app.get("/api/price-cache/check/{symbol}")
@@ -3399,24 +3873,8 @@ async def clear_price_cache(symbol: str, timeframe: str = None):
 
 @app.delete("/api/price-cache")
 async def clear_all_price_cache():
-    """Clear all price cache data."""
-    conn = get_db_conn()
-    if not conn:
-        raise HTTPException(status_code=500, detail="Database connection failed")
-    
-    try:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM price_cache")
-            deleted_bars = cur.rowcount
-            cur.execute("DELETE FROM price_cache_meta")
-            deleted_meta = cur.rowcount
-        conn.commit()
-        return {"status": "ok", "message": f"All cache cleared ({deleted_bars} bars, {deleted_meta} symbols)"}
-    except Exception as e:
-        logger.error(f"Failed to clear all cache: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        release_db_conn(conn)
+    """Backward-compatible alias for async clear-all cache job."""
+    return await start_clear_all_price_cache()
 
 
 
@@ -3426,3 +3884,19 @@ async def clear_all_price_cache():
 # Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
+@app.get("/widesurf")
+async def widesurf_gameplan():
+    """Serve the Widesurf API architecture gameplan page."""
+    from fastapi.responses import HTMLResponse
+    with open("static/widesurf.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/META")
+@app.get("/meta")
+async def meta_gameplan():
+    """Serve the meta-learning execution plan page."""
+    from fastapi.responses import HTMLResponse
+    with open("static/meta.html", "r") as f:
+        return HTMLResponse(content=f.read())
