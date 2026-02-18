@@ -455,22 +455,18 @@ def fetch_and_cache_prices(symbol: str, start_date: str, end_date: str, timefram
 # ============================================================================
 
 # Widesurf API configuration — import from config.py for consistency
-from config import WIDESURF_API_KEY, WIDESURF_API_URL, WIDESURF_V2_API_KEY, WIDESURF_V2_API_URL
+from config import WIDESURF_API_KEY, WIDESURF_API_URL
 
 def _is_widesurf_source(data_source: str) -> bool:
-    """Return True if data_source is any Widesurf variant (widesurf or widesurf_v2)."""
-    return data_source in ("widesurf", "widesurf_v2")
+    """Return True if data_source is Widesurf."""
+    return data_source == "widesurf"
 
 def _get_widesurf_config(data_source: str) -> tuple:
-    """Return (api_url, api_key) for the given Widesurf data source variant."""
-    if data_source == "widesurf_v2":
-        return WIDESURF_V2_API_URL, WIDESURF_V2_API_KEY
+    """Return (api_url, api_key) for Widesurf data source."""
     return WIDESURF_API_URL, WIDESURF_API_KEY
 
 def _get_widesurf_label(data_source: str) -> str:
-    """Return display label for a Widesurf data source variant."""
-    if data_source == "widesurf_v2":
-        return "Widesurf API V2"
+    """Return display label for Widesurf data source."""
     return "Widesurf API"
 
 def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, timeframe: str = "1Min", target_time: str = None, api_url: str = None, api_key: str = None) -> list:
@@ -487,7 +483,6 @@ def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, time
     Returns:
         List of price bars in standard format
     """
-    # Allow overriding API URL/key (used by Widesurf V2 variant)
     api_url = api_url or WIDESURF_API_URL
     api_key = api_key or WIDESURF_API_KEY
     symbol = symbol.upper()
@@ -527,10 +522,8 @@ def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, time
     
     logger.info(f"Fetching from Widesurf API: {symbol} {timeframe} {start_date} to {end_date}{' @' + target_time if target_time else ''}")
 
-    # Select semaphore and timeout based on API target
-    is_v2 = (api_url == WIDESURF_V2_API_URL)
-    sem = _WIDESURF_V2_SEMAPHORE if is_v2 else _WIDESURF_SEMAPHORE
-    req_timeout = 60 if is_v2 else 60
+    sem = _WIDESURF_SEMAPHORE
+    req_timeout = 60
 
     max_retries = 3
     for attempt in range(max_retries):
@@ -591,16 +584,8 @@ def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, time
     return bars
 
 
-def fetch_prices_from_widesurf_v2(symbol: str, start_date: str, end_date: str, timeframe: str = "1Min", target_time: str = None) -> list:
-    """Fetch historical price data from Widesurf API V2 (port 8090)."""
-    return fetch_prices_from_widesurf(symbol, start_date, end_date, timeframe, target_time,
-                                       api_url=WIDESURF_V2_API_URL, api_key=WIDESURF_V2_API_KEY)
-
-
 def _get_widesurf_fetcher(data_source: str):
-    """Return the appropriate Widesurf fetch function for the given data source."""
-    if data_source == "widesurf_v2":
-        return fetch_prices_from_widesurf_v2
+    """Return the Widesurf fetch function."""
     return fetch_prices_from_widesurf
 
 
@@ -656,11 +641,7 @@ from requests.adapters import HTTPAdapter
 # Limit concurrent Widesurf/external API calls to prevent overwhelming the local
 # Widesurf server.  20 concurrent connections caused "Connection aborted" errors
 # on large batches (280+ stocks).  8 keeps throughput high while staying stable.
-_WIDESURF_SEMAPHORE = threading.Semaphore(8)
-
-# Widesurf V2 (Go server) can handle higher concurrency — 20 slots.
-# Keep moderate to avoid TCP TIME_WAIT exhaustion on long 300+ stock runs.
-_WIDESURF_V2_SEMAPHORE = threading.Semaphore(20)
+_WIDESURF_SEMAPHORE = threading.Semaphore(20)
 
 # Connection-pooled HTTP session for Widesurf API calls.
 # Reuses TCP connections across requests instead of opening a new one each time.
@@ -765,35 +746,33 @@ async def get_widesurf_tickers(keyword: str):
     try:
         logger.info(f"Fetching {keyword_upper} tickers from Widesurf API: {url[:80]}...")
         resp = requests.get(url, timeout=30)
-        
+
         if resp.status_code != 200:
-            logger.error(f"Widesurf API error: {resp.status_code} - {resp.text[:500]}")
-            return {"success": False, "error": f"API returned status {resp.status_code}"}
-        
+            logger.error(f"Widesurf ticker API error: {resp.status_code}")
+            return {"success": False, "error": f"Widesurf ticker API returned {resp.status_code}. The ticker reference service (port 1020) may be down."}
+
         data = resp.json()
-        
+
         if not data.get("success") or not data.get("data") or not data["data"].get("stocks"):
             logger.error(f"Invalid API response format: {str(data)[:500]}")
-            return {"success": False, "error": "Invalid API response format"}
-        
+            return {"success": False, "error": "Widesurf ticker API returned invalid data. Try using ALL, CAP, or FULL keywords instead."}
+
         # Extract stock tickers from the 'pair' field
         stocks = [stock.get("pair") for stock in data["data"]["stocks"] if stock.get("pair")]
-        
+
         logger.info(f"Fetched {len(stocks)} tickers from Widesurf API for {keyword_upper}")
-        
+
         return {
             "success": True,
             "keyword": keyword_upper,
             "count": len(stocks),
             "stocks": stocks
         }
-        
+
     except requests.Timeout:
-        logger.error(f"Widesurf API timeout for {keyword_upper}")
-        return {"success": False, "error": "API request timed out"}
+        return {"success": False, "error": "Widesurf ticker API timed out. Try using ALL, CAP, or FULL keywords instead."}
     except Exception as e:
-        logger.error(f"Widesurf API error: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Widesurf ticker API error: {e}. Try using ALL, CAP, or FULL keywords instead."}
 
 
 # ============================================================================
@@ -918,16 +897,11 @@ async def get_api_keys_api():
                 "secret_key": config.WIDESURF_API_KEY,
                 "base_url": config.WIDESURF_API_URL
             },
-            "WIDESURF_V2": {
-                "key_id": "",
-                "secret_key": config.WIDESURF_V2_API_KEY,
-                "base_url": config.WIDESURF_V2_API_URL
-            }
         }
 
         # Merge DB keys with defaults
         final_keys = {}
-        providers = ["ALPACA", "MASSIVE", "WIDESURF", "WIDESURF_V2"]
+        providers = ["ALPACA", "MASSIVE", "WIDESURF"]
         
         for provider in providers:
             db_data = db_keys.get(provider, {})
@@ -993,7 +967,7 @@ class OptimizationRequest(BaseModel):
     smart_timing: bool = False  # Enable optimal buy time optimization
     timing_approach: str = "sequential"  # "sequential" or "joint"
     algo: str = "default"  # "default" or "chatgpt"
-    data_source: str = "widesurf"  # "alpaca", "widesurf", or "widesurf_v2"
+    data_source: str = "widesurf"  # "alpaca" or "widesurf"
     partial: bool = False  # Skip already processed stocks
 
 
@@ -2796,9 +2770,13 @@ async def optimize_stock(
             
             # If backtest dates differ, fetch new price data for backtest range
             if bt_start != config.start_date or bt_end != config.end_date:
-                logger.info(f"Fetching price data for backtest range: {bt_start} to {bt_end}")
+                logger.info(f"Fetching price data for backtest range: {bt_start} to {bt_end} (source: {data_source})")
                 loop = asyncio.get_event_loop()
-                backtest_bars = await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices, symbol, bt_start, bt_end)
+                if _is_widesurf_source(data_source):
+                    fetcher = _get_widesurf_fetcher(data_source)
+                    backtest_bars = await loop.run_in_executor(_IO_EXECUTOR, fetcher, symbol, bt_start, bt_end, "1Day")
+                else:
+                    backtest_bars = await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices, symbol, bt_start, bt_end)
                 trade_log_bars = backtest_bars if backtest_bars else bars
             else:
                 trade_log_bars = bars
@@ -3223,22 +3201,22 @@ async def start_optimization(request: OptimizationRequest):
         total_count = len(request.symbols)
         completed_count = 0
 
-        # ── Phase 1: Pre-fetch ALL price data with controlled concurrency ──────
-        # This is critical for performance: download all data BEFORE starting
-        # optimization workers so they never block waiting on API calls.
-        # The _WIDESURF_SEMAPHORE inside fetch_prices_from_widesurf limits
-        # concurrent HTTP requests to prevent API rate-limit throttling.
-        logger.info(f"Phase 1: Pre-fetching price data for {total_count} stocks...")
+        # ── Pipelined Download + Optimize ─────────────────────────────────────
+        # Downloads data in batches and feeds stocks to optimization workers
+        # as soon as each batch is ready. Workers start optimizing immediately
+        # instead of waiting for all 8000+ stocks to finish downloading.
+        logger.info(f"Starting pipelined download+optimize for {total_count} stocks...")
         await broadcast_message({
             "type": "status",
             "job_id": job_id,
-            "message": f"⚡ Pre-fetching price data for {total_count} stocks..."
+            "message": f"⚡ Downloading & optimizing {total_count} stocks (pipelined)..."
         })
 
         loop = asyncio.get_event_loop()
         data_source = getattr(request, 'data_source', 'widesurf')
         algo_type = getattr(request, 'algo', 'default') or 'default'
         prefetch_done = [0]
+        download_complete = asyncio.Event()
 
         _VWAP_ALGOS = ("chatgpt", "chatgpt_stoploss", "chatgpt_vwap", "chatgpt_vwap_rust")
 
@@ -3249,8 +3227,7 @@ async def start_optimization(request: OptimizationRequest):
                     fetcher = _get_widesurf_fetcher(data_source)
                     needs_vwap = algo_type in _VWAP_ALGOS
 
-                    if data_source == "widesurf_v2" and needs_vwap:
-                        # V2 (Go server): fire all 3 requests in parallel
+                    if needs_vwap:
                         await asyncio.gather(
                             loop.run_in_executor(_IO_EXECUTOR, fetcher,
                                 sym, request.start_date, request.end_date, "1Day"),
@@ -3260,14 +3237,8 @@ async def start_optimization(request: OptimizationRequest):
                                 sym, request.start_date, request.end_date, "1Day", "0940"),
                         )
                     else:
-                        # V1: sequential to avoid overwhelming the server
                         await loop.run_in_executor(_IO_EXECUTOR, fetcher,
                             sym, request.start_date, request.end_date, "1Day")
-                        if needs_vwap:
-                            await loop.run_in_executor(_IO_EXECUTOR, fetcher,
-                                sym, request.start_date, request.end_date, "1Day", "1000")
-                            await loop.run_in_executor(_IO_EXECUTOR, fetcher,
-                                sym, request.start_date, request.end_date, "1Day", "0940")
                 else:
                     await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices,
                         sym, request.start_date, request.end_date, "1Day")
@@ -3284,36 +3255,19 @@ async def start_optimization(request: OptimizationRequest):
                     "message": f"📥 Downloaded data: {prefetch_done[0]}/{total_count} stocks"
                 })
 
-        # Launch pre-fetches — batch in chunks for V2 to avoid TCP exhaustion
-        # on 300+ stock runs (TIME_WAIT socket buildup causes slowdowns).
-        if data_source == "widesurf_v2":
-            BATCH_SIZE = 40
-            for batch_start in range(0, total_count, BATCH_SIZE):
-                batch = request.symbols[batch_start:batch_start + BATCH_SIZE]
-                await asyncio.gather(*[prefetch_one(s) for s in batch])
-                # Brief pause between batches to let TCP connections recycle
-                if batch_start + BATCH_SIZE < total_count:
-                    await asyncio.sleep(0.3)
-        else:
-            # V1 / Alpaca: fire all at once, semaphore handles rate limiting
-            await asyncio.gather(*[prefetch_one(s) for s in request.symbols])
-        logger.info(f"Phase 1 complete: Pre-fetched data for {total_count} stocks")
-        await broadcast_message({
-            "type": "status",
-            "job_id": job_id,
-            "message": f"✅ Data loaded. Starting optimization for {total_count} stocks..."
-        })
-
-        # ── Phase 2: Run optimization (data already cached) ────────────────────
+        # ── Optimization worker ──────────────────────────────────────────────
         async def worker(worker_id, work_queue, engine_type='cpu'):
             nonlocal completed_count
             logger.info(f"Worker {worker_id} ({engine_type}) started")
             while True:
                 if is_job_cancelled(job_id): break
                 try:
-                    symbol = await asyncio.wait_for(work_queue.get(), timeout=2.0)
+                    symbol = await asyncio.wait_for(work_queue.get(), timeout=3.0)
                 except asyncio.TimeoutError:
-                    break
+                    # If download is done and queue is empty, we're finished
+                    if download_complete.is_set():
+                        break
+                    continue
                 try:
                     start_time = time.time()
                     logger.info(f"Worker {worker_id} ({engine_type}) starting {symbol}")
@@ -3336,7 +3290,7 @@ async def start_optimization(request: OptimizationRequest):
                         "total": total_count,
                         "symbol": symbol,
                         "success": bool(res),
-                        "message": f"🔄 Optimized: {completed_count}/{total_count} stocks"
+                        "message": f"🔄 Optimized: {completed_count}/{total_count} stocks (📥 {prefetch_done[0]}/{total_count} downloaded)"
                     })
                     if completed_count % 10 == 0 or completed_count == total_count:
                         logger.info(f"Job {job_id} progress: {completed_count}/{total_count} ({engine_type} worker {worker_id} finished {symbol})")
@@ -3354,51 +3308,76 @@ async def start_optimization(request: OptimizationRequest):
                     })
                     work_queue.task_done()
 
-        workers = []
-
+        # ── Set up work queue and workers ────────────────────────────────────
         # Auto-enable GPU when hardware is available.
         use_gpu_dispatch = GPU_BACKTEST_AVAILABLE and (request.use_gpu is not False)
 
-        # Worker count: 32 CPU workers for a 32-core machine.
-        # - API data is pre-fetched (no I/O blocking during optimization)
-        # - Each worker does CPU-bound compute (Rust/GPU/Optuna)
-        # - Increased from 12 to 30 to saturate all cores for massive stock lists.
         n_cpu_workers = min(30, max(4, total_count))
 
-        if use_gpu_dispatch:
-            gpu_queue = asyncio.Queue()
-            cpu_queue = asyncio.Queue()
+        # chatgpt_vwap_rust must always use the Rust engine
+        use_hybrid = use_gpu_dispatch and algo_type != 'chatgpt_vwap_rust'
+
+        cpu_queue = asyncio.Queue()
+        gpu_queue = asyncio.Queue() if use_hybrid else None
+
+        worker_tasks = []
+        if use_hybrid:
             gpu_share = max(1, int(total_count * 0.4))
-            symbols_list = list(request.symbols)
-
-            for i, s in enumerate(symbols_list):
-                if i < gpu_share:
-                    gpu_queue.put_nowait(s)
-                else:
-                    cpu_queue.put_nowait(s)
-
             logger.info(f"Hybrid dispatch: GPU={gpu_share} stocks (2 workers), CPU={total_count - gpu_share} stocks ({n_cpu_workers} workers)")
-
-            workers.append(asyncio.create_task(worker("GPU-1", gpu_queue, engine_type='gpu')))
-            workers.append(asyncio.create_task(worker("GPU-2", gpu_queue, engine_type='gpu')))
-
+            worker_tasks.append(asyncio.create_task(worker("GPU-1", gpu_queue, engine_type='gpu')))
+            worker_tasks.append(asyncio.create_task(worker("GPU-2", gpu_queue, engine_type='gpu')))
             for i in range(n_cpu_workers):
-                workers.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
+                worker_tasks.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
         else:
-            cpu_queue = asyncio.Queue()
-            for s in request.symbols:
-                cpu_queue.put_nowait(s)
-
+            if algo_type == 'chatgpt_vwap_rust' and use_gpu_dispatch:
+                logger.info(f"VWAP Rust algo: bypassing GPU, routing all {total_count} stocks to Rust/CPU workers")
             for i in range(n_cpu_workers):
-                workers.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
+                worker_tasks.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
 
-        # Wait for all workers to finish
-        if use_gpu_dispatch:
+        # ── Downloader task: fetch data in batches and feed work queues ──────
+        async def downloader():
+            gpu_idx = 0
+            gpu_share = max(1, int(total_count * 0.4)) if use_hybrid else 0
+
+            if _is_widesurf_source(data_source):
+                BATCH_SIZE = 40
+                sym_idx = 0
+                for batch_start in range(0, total_count, BATCH_SIZE):
+                    if is_job_cancelled(job_id): break
+                    batch = request.symbols[batch_start:batch_start + BATCH_SIZE]
+                    await asyncio.gather(*[prefetch_one(s) for s in batch])
+                    # Feed downloaded stocks to optimization queues immediately
+                    for s in batch:
+                        if use_hybrid and sym_idx < gpu_share:
+                            gpu_queue.put_nowait(s)
+                        else:
+                            cpu_queue.put_nowait(s)
+                        sym_idx += 1
+                    if batch_start + BATCH_SIZE < total_count:
+                        await asyncio.sleep(0.1)
+            else:
+                await asyncio.gather(*[prefetch_one(s) for s in request.symbols])
+                for i, s in enumerate(request.symbols):
+                    if use_hybrid and i < gpu_share:
+                        gpu_queue.put_nowait(s)
+                    else:
+                        cpu_queue.put_nowait(s)
+
+            download_complete.set()
+            logger.info(f"Download complete: {prefetch_done[0]}/{total_count} stocks fetched")
+
+        # Launch downloader and workers concurrently
+        downloader_task = asyncio.create_task(downloader())
+
+        # Wait for downloader to finish first, then drain queues
+        await downloader_task
+
+        if use_hybrid:
             await asyncio.gather(gpu_queue.join(), cpu_queue.join())
         else:
             await cpu_queue.join()
-        
-        for w in workers: w.cancel()
+
+        for w in worker_tasks: w.cancel()
         
         # Clean up the in-memory Widesurf cache to free memory
         with _widesurf_cache_lock:
@@ -3414,7 +3393,7 @@ async def start_optimization(request: OptimizationRequest):
             "type": "job_complete",
             "job_id": job_id,
             "results": results,
-            "message": f"All {total_count} stocks optimized using Hybrid Dual-Engine (CPU+GPU)!"
+            "message": f"All {total_count} stocks optimized using {'Hybrid Dual-Engine (CPU+GPU)' if use_hybrid else 'Rust/CPU Engine'}!"
         })
     
     asyncio.create_task(run_all())
