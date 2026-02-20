@@ -1472,6 +1472,233 @@ def run_chatgpt_vwap_optimization(
 
 
 
+class GPUVWAPRustBacktester:
+    """
+    GPU-accelerated backtester matching the Rust VWAP 5-condition strategy exactly.
+
+    Entry conditions (all must be true):
+      1. price_10am > vwap
+      2. vwap_slope > 0  (vwap trending up from 9:40 to 10:00)
+      3. vwap_stretch < alpha * or_vol  (not too extended)
+      4. momentum > gamma * or_vol  (sufficient momentum from open)
+      5. price_10am >= prev_close * (1 + buy_trigger_pct)  (buy trigger gate)
+
+    Exit: take-profit if daily high hits target, else exit at close.
+    No stop loss. Alpha=0.50, Gamma=0.25 (fixed, matching Rust).
+    Grid search over buy_trigger_pct AND sell_trigger_pct (2D).
+    """
+
+    ALPHA = 0.50
+    GAMMA = 0.25
+
+    def __init__(self, bars: list, capital: float = 100000):
+        self.capital = capital
+        self.n_bars = len(bars)
+
+        self.open_arr  = xp.array([float(b.get("o", 0)) for b in bars], dtype=xp.float32)
+        self.high_arr  = xp.array([float(b.get("h", 0)) for b in bars], dtype=xp.float32)
+        self.close_arr = xp.array([float(b.get("c", 0)) for b in bars], dtype=xp.float32)
+        self.p10_arr   = xp.array([float(b.get("price_10am", 0)) for b in bars], dtype=xp.float32)
+        self.vwap_arr  = xp.array([float(b.get("vwap", 0)) for b in bars], dtype=xp.float32)
+        self.v940_arr  = xp.array([float(b.get("vwap_940", 0)) for b in bars], dtype=xp.float32)
+        self.or_h_arr  = xp.array([float(b.get("or_high", 0)) for b in bars], dtype=xp.float32)
+        self.or_l_arr  = xp.array([float(b.get("or_low", 0)) for b in bars], dtype=xp.float32)
+
+        # Pre-compute prev_close (shifted close array for buy trigger gate)
+        self.prev_close = xp.zeros(self.n_bars, dtype=xp.float32)
+        if self.n_bars > 1:
+            self.prev_close[1:] = self.close_arr[:-1]
+
+        # Pre-compute the 4-condition VWAP signal (bool array) – same for all parameter combos
+        self.vwap_signal = self._compute_vwap_signals()
+        n_vwap = int(xp.sum(self.vwap_signal))
+        logger.info(f"GPUVWAPRustBacktester: {self.n_bars} bars, {n_vwap} VWAP signal days, GPU={GPU_AVAILABLE}")
+
+    def _compute_vwap_signals(self):
+        """Vectorised 4-condition VWAP entry (matches Rust exactly)."""
+        valid = (self.p10_arr > 0) & (self.vwap_arr > 0) & (self.v940_arr > 0) & (self.open_arr > 0)
+
+        # Condition 1: price above VWAP
+        c1 = self.p10_arr > self.vwap_arr
+
+        # Condition 2: VWAP slope > 0
+        vwap_slope = (self.vwap_arr - self.v940_arr) / self.v940_arr
+        c2 = vwap_slope > 0
+
+        # Opening-range volatility (VWAP-anchored)
+        or_vol = xp.maximum(self.or_h_arr - self.vwap_arr, self.vwap_arr - self.or_l_arr) / self.vwap_arr
+        or_vol = xp.where(self.vwap_arr > 0, or_vol, xp.float32(0.02))
+
+        # Condition 3: not too stretched from VWAP
+        stretch = (self.p10_arr - self.vwap_arr) / self.vwap_arr
+        c3 = xp.where(or_vol > 0, stretch < self.ALPHA * or_vol, stretch < 0.01)
+
+        # Condition 4: sufficient momentum from open
+        momentum = (self.p10_arr - self.open_arr) / self.open_arr
+        c4 = xp.where(or_vol > 0, momentum > self.GAMMA * or_vol, momentum > 0.005)
+
+        return valid & c1 & c2 & c3 & c4
+
+    def grid_search(self, buy_range: tuple, sell_range: tuple, metric: str = "total_return") -> dict:
+        """
+        Vectorised 2D grid search over buy_trigger_pct AND sell_trigger_pct values.
+        Each combo runs the full backtest sequentially over bars but all combos
+        are evaluated in a single vectorised pass (GPU or CPU).
+        """
+        buy_values = np.arange(buy_range[0], buy_range[1], buy_range[2]).astype(np.float32)
+        sell_values = np.arange(sell_range[0], sell_range[1], sell_range[2]).astype(np.float32)
+
+        # Create 2D grid: all (buy, sell) combinations
+        buy_grid, sell_grid = np.meshgrid(buy_values, sell_values)
+        buy_flat = buy_grid.flatten()
+        sell_flat = sell_grid.flatten()
+        n_combos = len(buy_flat)
+
+        logger.info(f"[GPU-VWAP-Rust] Grid search: {len(buy_values)} buy x {len(sell_values)} sell = "
+                     f"{n_combos} combos using {'GPU' if GPU_AVAILABLE else 'CPU'}")
+
+        buy_trig = xp.array(buy_flat, dtype=xp.float32).reshape(n_combos, 1)
+        sell_trig = xp.array(sell_flat, dtype=xp.float32).reshape(n_combos, 1)
+
+        # State arrays: (n_combos, 1)
+        equity = xp.full((n_combos, 1), self.capital, dtype=xp.float32)
+        total_trades = xp.zeros((n_combos, 1), dtype=xp.float32)
+        winning_trades = xp.zeros((n_combos, 1), dtype=xp.float32)
+        max_equity = xp.full((n_combos, 1), self.capital, dtype=xp.float32)
+        max_drawdown = xp.zeros((n_combos, 1), dtype=xp.float32)
+
+        # For Sharpe: accumulate sum and sum-of-squares of per-trade returns
+        ret_sum = xp.zeros((n_combos, 1), dtype=xp.float32)
+        ret_sq_sum = xp.zeros((n_combos, 1), dtype=xp.float32)
+
+        for i in range(self.n_bars):
+            if not bool(self.vwap_signal[i]):
+                continue
+
+            buy_price = float(self.p10_arr[i])
+            high = float(self.high_arr[i])
+            close = float(self.close_arr[i])
+            prev_c = float(self.prev_close[i])
+            if buy_price <= 0:
+                continue
+
+            # Condition 5: buy trigger gate – price_10am >= prev_close * (1 + buy_trigger_pct)
+            # When prev_close is 0 (first bar), all combos pass
+            if prev_c > 0:
+                buy_gate = buy_price >= prev_c * (1.0 + buy_trig)
+            else:
+                buy_gate = xp.ones((n_combos, 1), dtype=bool)
+
+            tp_price = buy_price * (1.0 + sell_trig)
+
+            # Shares (compound: use all equity)
+            shares = xp.floor(equity / buy_price)
+            # Only trade where we have shares AND buy trigger gate passes
+            has_shares = (shares > 0) & buy_gate
+
+            # Exit: TP if high reaches it, else close
+            hit_tp = high >= tp_price
+            exit_price = xp.where(hit_tp, tp_price, xp.float32(close))
+
+            pnl = shares * (exit_price - buy_price)
+            pct_ret = (exit_price - buy_price) / buy_price
+
+            # Update only where we have shares AND gate passed
+            equity = xp.where(has_shares, equity + pnl, equity)
+            total_trades = xp.where(has_shares, total_trades + 1, total_trades)
+            winning_trades = xp.where(has_shares & (pnl > 0), winning_trades + 1, winning_trades)
+            ret_sum = xp.where(has_shares, ret_sum + pct_ret, ret_sum)
+            ret_sq_sum = xp.where(has_shares, ret_sq_sum + pct_ret * pct_ret, ret_sq_sum)
+
+            max_equity = xp.maximum(max_equity, equity)
+            dd = xp.where(max_equity > 0, (max_equity - equity) / max_equity, xp.float32(0))
+            max_drawdown = xp.maximum(max_drawdown, dd)
+
+        total_return = (equity - self.capital) / self.capital
+        win_rate = xp.where(total_trades > 0, winning_trades / total_trades, xp.float32(0))
+
+        # Sharpe (annualised)
+        mean_ret = xp.where(total_trades > 1, ret_sum / total_trades, xp.float32(0))
+        variance = xp.where(
+            total_trades > 1,
+            (ret_sq_sum - ret_sum * ret_sum / total_trades) / (total_trades - 1),
+            xp.float32(0)
+        )
+        std_ret = xp.sqrt(xp.maximum(variance, xp.float32(0)))
+        sharpe = xp.where(std_ret > 1e-8, mean_ret / std_ret * xp.float32(252 ** 0.5), xp.float32(0))
+
+        # Pick metric
+        if metric == "sharpe":
+            score_arr = sharpe
+        elif metric == "win_rate":
+            score_arr = win_rate
+        else:
+            score_arr = total_return
+
+        def to_cpu(arr):
+            if GPU_AVAILABLE:
+                return cp.asnumpy(arr).flatten()
+            return np.asarray(arr).flatten()
+
+        scores = to_cpu(score_arr)
+        best_idx = int(np.argmax(scores))
+
+        best_buy_pct = round(float(buy_flat[best_idx]) * 100, 2)
+        best_sell_pct = round(float(sell_flat[best_idx]) * 100, 2)
+        tr = to_cpu(total_return)
+        wr = to_cpu(win_rate)
+        sh = to_cpu(sharpe)
+        md = to_cpu(max_drawdown)
+        tt = to_cpu(total_trades)
+
+        logger.info(f"[GPU-VWAP-Rust] Best buy_trigger={best_buy_pct}% sell_trigger={best_sell_pct}% "
+                     f"return={tr[best_idx]:.4f} sharpe={sh[best_idx]:.2f} "
+                     f"win={wr[best_idx]:.2f} trades={int(tt[best_idx])}")
+
+        return {
+            "best_params": {
+                "buy_trigger_pct": best_buy_pct,
+                "sell_trigger_pct": best_sell_pct,
+                "compound": True,
+            },
+            "metrics": {
+                "total_return": float(tr[best_idx]),
+                "sharpe": float(sh[best_idx]),
+                "win_rate": float(wr[best_idx]),
+                "max_drawdown": float(md[best_idx]),
+                "total_trades": int(tt[best_idx]),
+            },
+            "optimization_type": "gpu_vwap_rust",
+            "gpu_enabled": GPU_AVAILABLE,
+            "combinations_tested": n_combos,
+            "best_score": float(scores[best_idx]),
+        }
+
+
+def run_gpu_vwap_rust_optimization(
+    bars: list,
+    capital: float = 100000,
+    buy_range: tuple = (0.001, 0.03, 0.001),
+    sell_range: tuple = (0.01, 0.10, 0.002),
+    metric: str = "total_return",
+) -> dict:
+    """
+    GPU-accelerated VWAP 5-condition strategy optimization.
+    Mirrors the Rust binary logic exactly but runs on GPU via CuPy.
+    Grid searches over both buy_trigger_pct and sell_trigger_pct.
+    """
+    backtester = GPUVWAPRustBacktester(bars, capital)
+    result = backtester.grid_search(buy_range, sell_range, metric)
+    return {
+        "symbol": "GPU_VWAP_RUST",
+        "best_params": result["best_params"],
+        "metrics": result["metrics"],
+        "optimization_type": result["optimization_type"],
+        "gpu_enabled": result["gpu_enabled"],
+        "combinations_tested": result["combinations_tested"],
+    }
+
+
 def run_gpu_optimization(
     bars: list,
     capital: float = 100000,

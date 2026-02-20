@@ -148,7 +148,7 @@ fn vwap_entry_signal(bar: &Bar, alpha: f64, gamma: f64) -> bool {
 // Single backtest run (purely sequential, reads bars immutably)
 // ============================================================================
 
-fn run_backtest(bars: &[Bar], capital: f64, take_profit_pct: f64) -> Metrics {
+fn run_backtest(bars: &[Bar], capital: f64, buy_trigger_pct: f64, take_profit_pct: f64) -> Metrics {
     let alpha = 0.50_f64;
     let gamma = 0.25_f64;
 
@@ -159,20 +159,39 @@ fn run_backtest(bars: &[Bar], capital: f64, take_profit_pct: f64) -> Metrics {
     let mut total_loss = 0.0_f64;
     let mut max_equity = equity;
     let mut max_drawdown = 0.0_f64;
+    let mut prev_close = 0.0_f64;
 
     // For Sharpe: collect per-trade returns
     let mut trade_returns: Vec<f64> = Vec::new();
 
     for bar in bars {
-        if bar.o <= 0.0 { continue; }
+        if bar.o <= 0.0 {
+            prev_close = bar.c;
+            continue;
+        }
 
-        if !vwap_entry_signal(bar, alpha, gamma) { continue; }
+        // Condition 5: buy trigger gate – price_10am must be >= prev_close * (1 + buy_trigger_pct)
+        if prev_close > 0.0 && bar.price_10am < prev_close * (1.0 + buy_trigger_pct) {
+            prev_close = bar.c;
+            continue;
+        }
+
+        if !vwap_entry_signal(bar, alpha, gamma) {
+            prev_close = bar.c;
+            continue;
+        }
 
         let buy_price = bar.price_10am;
-        if buy_price <= 0.0 { continue; }
+        if buy_price <= 0.0 {
+            prev_close = bar.c;
+            continue;
+        }
 
         let shares = (equity / buy_price).floor() as i64;
-        if shares <= 0 { continue; }
+        if shares <= 0 {
+            prev_close = bar.c;
+            continue;
+        }
 
         total_trades += 1;
 
@@ -201,6 +220,8 @@ fn run_backtest(bars: &[Bar], capital: f64, take_profit_pct: f64) -> Metrics {
             let dd = (max_equity - equity) / max_equity;
             if dd > max_drawdown { max_drawdown = dd; }
         }
+
+        prev_close = bar.c;
     }
 
     let total_return = (equity - capital) / capital;
@@ -266,15 +287,7 @@ fn grid_search(bars: &[Bar], capital: f64, buy_range: [f64; 3], sell_range: [f64
     let results: Vec<(f64, f64, Metrics)> = combos
         .par_iter()
         .map(|&(buy_trig, sell_trig)| {
-            let m = run_backtest(bars, capital, sell_trig);
-            // Note: buy_trig is used only for the ChatGPT 9AM entry filter
-            // which is already embedded in the VWAP signal.  The sell_trig
-            // maps to take_profit_pct.
-            //
-            // For VWAP strategy: buy trigger isn't used separately since
-            // entry is controlled by the VWAP conditions.
-            // We still grid-search over buy triggers for compatibility
-            // and store the best combo.
+            let m = run_backtest(bars, capital, buy_trig, sell_trig);
             (buy_trig, sell_trig, m)
         })
         .collect();

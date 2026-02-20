@@ -703,33 +703,39 @@
         }
 
         .refresh-btn {
-            background: transparent;
-            border: 1px solid var(--border);
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
             color: var(--text-secondary);
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            font-size: 0.75rem;
+            padding: 0.45rem 0.9rem;
+            border-radius: 8px;
+            font-size: 0.72rem;
             cursor: pointer;
-            margin-bottom: 1rem;
+            margin-bottom: 0.75rem;
             width: 100%;
+            backdrop-filter: blur(4px);
+            transition: all 0.2s;
+            letter-spacing: 0.02em;
         }
 
         .refresh-btn:hover {
-            border-color: var(--accent);
-            color: var(--accent);
+            background: rgba(255,255,255,0.08);
+            border-color: rgba(255,255,255,0.15);
+            color: var(--text-primary);
         }
 
         .sort-btn {
-            background: transparent;
-            border: 1px solid var(--border);
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
             color: var(--text-secondary);
-            padding: 0.35rem 0.6rem;
-            border-radius: 4px;
-            font-size: 0.7rem;
+            padding: 0.4rem 0.5rem;
+            border-radius: 8px;
+            font-size: 0.68rem;
             cursor: pointer;
             flex: 1;
             transition: all 0.2s;
             position: relative;
+            backdrop-filter: blur(4px);
+            letter-spacing: 0.01em;
         }
 
         .sort-btn[title]:hover::after {
@@ -752,31 +758,35 @@
         }
 
         .sort-btn:hover {
-            border-color: var(--accent);
-            color: var(--accent);
+            background: rgba(255,255,255,0.07);
+            border-color: rgba(255,255,255,0.15);
+            color: var(--text-primary);
         }
 
         .sort-btn.active {
-            background: var(--accent);
-            border-color: var(--accent);
+            background: linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 80%, black) 100%);
+            border-color: transparent;
             color: white;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
         }
 
         .search-input {
             width: 100%;
             padding: 0.5rem 0.75rem;
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 6px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px;
             color: var(--text-primary);
-            font-size: 0.8rem;
+            font-size: 0.78rem;
             margin-bottom: 0.75rem;
             outline: none;
-            transition: border-color 0.2s;
+            transition: all 0.2s;
+            backdrop-filter: blur(4px);
         }
 
         .search-input:focus {
             border-color: var(--accent);
+            background: rgba(255,255,255,0.05);
         }
 
         .search-input::placeholder {
@@ -933,6 +943,11 @@
             animation: slideDown 0.2s ease;
         }
 
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
         @keyframes slideDown {
             from {
                 opacity: 0;
@@ -1045,6 +1060,9 @@
             <button id="stop-optimization-btn" onclick="stopOptimization()"
                 style="background: var(--danger); color: white; border: none; padding: 0.3rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 600; margin-left: 1rem;">⏹
                 STOP</button>
+            <button id="pause-optimization-btn" onclick="togglePauseOptimization()"
+                style="background: #f59e0b; color: white; border: none; padding: 0.3rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 600; margin-left: 0.5rem;">⏸
+                PAUSE</button>
             <div class="global-progress-stats">
                 <div class="global-progress-stat">
                     <span class="global-progress-stat-label">Elapsed:</span>
@@ -1197,10 +1215,20 @@
                 </small>
             </div>
 
-            <div class="form-group"
-                style="display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;">
-                <label for="use-gpu" style="margin-bottom: 0; cursor: pointer;">Available GPU: RTX 3080 EVGA</label>
-                <input type="checkbox" id="use-gpu" style="width: auto; margin-top: 0;" checked />
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 0.4rem;">
+                <label style="margin-bottom: 0; color: #ccc; font-size: 0.85em;">Hardware Engines</label>
+                <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;">
+                    <label for="use-gpu" style="margin-bottom: 0; cursor: pointer; font-size: 0.9em;">GPU: RTX 3080 EVGA</label>
+                    <input type="checkbox" id="use-gpu" style="width: auto; margin-top: 0;" checked />
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;">
+                    <label for="use-cpu" style="margin-bottom: 0; cursor: pointer; font-size: 0.9em;">CPU: i9-13900K - 32 cores</label>
+                    <input type="checkbox" id="use-cpu" style="width: auto; margin-top: 0;" checked />
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;">
+                    <label for="use-igpu" style="margin-bottom: 0; cursor: pointer; font-size: 0.9em;">iGPU: Intel UHD Graphics</label>
+                    <input type="checkbox" id="use-igpu" style="width: auto; margin-top: 0;" checked />
+                </div>
             </div>
 
             <div class="form-group"
@@ -1714,13 +1742,14 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                     <h3 style="color: var(--accent); margin: 0;">Run Logs</h3>
                     <div style="display: flex; gap: 0.5rem;">
-                        <button class="btn" onclick="loadJobLogs()"
-                            style="background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary); padding: 0.4rem 0.8rem; font-size: 0.8rem;">
+                        <button id="logs-refresh-btn" class="btn" onclick="refreshJobLogs()"
+                            style="background: none; border: none; color: var(--text-secondary); padding: 0.4rem 0.6rem; font-size: 0.75rem; cursor: pointer; display: flex; align-items: center; gap: 0.35rem;">
+                            <svg id="logs-refresh-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
                             Refresh
                         </button>
                         <button class="btn" onclick="clearJobLogs()"
-                            style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; padding: 0.4rem 0.8rem; font-size: 0.8rem;">
-                            Clear All
+                            style="background: var(--bg-input); border: 1px solid #ef4444; color: #ef4444; padding: 0.4rem 0.8rem; font-size: 0.75rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                            🗑 Clear All
                         </button>
                     </div>
                 </div>
@@ -1782,29 +1811,31 @@
         </section>
 
         <aside class="panel history-panel">
-            <h2 style="display: flex; align-items: center; gap: 0.5rem;">
-                📜 History <span id="history-count"
-                    style="font-size: 0.8em; color: var(--accent); font-weight: normal;">(0)</span>
-                <button class="delete-all-btn" onclick="deleteAllHistory()" title="Delete All History">🗑️</button>
+            <h2 style="display: flex; align-items: center; gap: 0.5rem; font-size: 1rem; letter-spacing: -0.01em;">
+                <span style="color: var(--accent);">|</span> History <span id="history-count"
+                    style="font-size: 0.8em; color: var(--text-secondary); font-weight: 400;">(0)</span>
+                <button class="delete-all-btn" onclick="deleteAllHistory()" title="Delete All History">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                </button>
             </h2>
-            <button class="refresh-btn" onclick="loadHistory()">🔄 Refresh History</button>
-            <input type="text" id="history-search" class="search-input" placeholder="🔍 Search symbol..."
+            <button class="refresh-btn" onclick="loadHistory()">Refresh History</button>
+            <input type="text" id="history-search" class="search-input" placeholder="Search symbol..."
                 oninput="filterHistory()">
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; margin-bottom: 0.75rem;">
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.35rem; margin-bottom: 0.75rem;">
                 <button class="sort-btn active" id="sort-date" onclick="sortHistory('date')"
-                    title="Sort by most recently optimized">📅 Date</button>
+                    title="Sort by most recently optimized">Date</button>
                 <button class="sort-btn" id="sort-sharpe" onclick="sortHistory('sharpe')"
-                    title="Sort by Sharpe Ratio — risk-adjusted return (higher = better risk/reward)">📈 Sharpe</button>
+                    title="Sort by Sharpe Ratio">Sharpe</button>
                 <button class="sort-btn" id="sort-max" onclick="sortHistory('max')"
-                    title="Sort by Maximum Gain — highest single-day % gain found in backtest">🚀 Max</button>
+                    title="Sort by Maximum Gain">Max</button>
                 <button class="sort-btn" id="sort-win" onclick="sortHistory('win')"
-                    title="Sort by Win Rate — % of trades that were profitable">🎯 Win</button>
+                    title="Sort by Win Rate">Win</button>
                 <button class="sort-btn" id="sort-fin" onclick="sortHistory('fin')"
-                    title="Sort by Final Portfolio Value — ending capital after backtest">💰 Fin</button>
+                    title="Sort by Final Portfolio Value">Fin</button>
                 <button class="sort-btn" id="sort-amnt" onclick="sortHistory('amnt')"
-                    title="Sort by Trade Count — number of winning trades executed">📊 Amnt</button>
+                    title="Sort by Trade Count">Amnt</button>
                 <button class="sort-btn" id="sort-win2" onclick="sortHistory('win2')"
-                    title="Sort by Win Rate v2 — calculated directly from trade log">🏆 Win2</button>
+                    title="Sort by Win Rate v2">Win2</button>
             </div>
             <div class="filter-row">
                 <label class="filter-checkbox">
@@ -2153,6 +2184,19 @@
         }
 
         // ── Logs Tab Functions ─────────────────────────────────────────────
+        async function refreshJobLogs() {
+            const btn = document.getElementById('logs-refresh-btn');
+            const icon = document.getElementById('logs-refresh-icon');
+            btn.disabled = true;
+            icon.style.animation = 'spin 0.6s linear infinite';
+            try {
+                await loadJobLogs();
+            } finally {
+                icon.style.animation = '';
+                btn.disabled = false;
+            }
+        }
+
         async function loadJobLogs() {
             const container = document.getElementById('job-history-list');
             try {
@@ -2169,7 +2213,7 @@
         }
 
         async function clearJobLogs() {
-            if (!confirm('Delete all job logs? This also removes associated optimization results.')) return;
+            if (!confirm('Clear all job logs? Optimization history will be preserved.')) return;
             try {
                 const resp = await fetch('/api/jobs', { method: 'DELETE' });
                 const data = await resp.json();
@@ -2178,9 +2222,8 @@
                 // Clear live log
                 const liveLog = document.getElementById('live-log-container');
                 if (liveLog) { liveLog.innerHTML = '<div style="color: var(--text-secondary);">Waiting for optimization run...</div>'; delete liveLog.dataset.started; }
-                // Reload
+                // Reload job logs only (history is preserved)
                 loadJobLogs();
-                loadHistory();
             } catch (e) {
                 alert('Failed to clear logs: ' + e.message);
             }
@@ -3075,6 +3118,8 @@
                     document.getElementById('trials').value = config.trials || 200;
                     document.getElementById('metric').value = config.metric || 'sharpe';
                     document.getElementById('use-gpu').checked = config.useGpu !== undefined ? config.useGpu : true;
+                    document.getElementById('use-cpu').checked = config.useCpu !== undefined ? config.useCpu : true;
+                    document.getElementById('use-igpu').checked = config.useIgpu !== undefined ? config.useIgpu : true;
                     document.getElementById('smart-timing').checked = config.smartTiming || false;
                     document.getElementById('timing-approach').value = config.timingApproach || 'sequential';
 
@@ -3099,6 +3144,8 @@
                     trials: document.getElementById('trials').value,
                     metric: document.getElementById('metric').value,
                     useGpu: document.getElementById('use-gpu').checked,
+                    useCpu: document.getElementById('use-cpu').checked,
+                    useIgpu: document.getElementById('use-igpu').checked,
                     smartTiming: document.getElementById('smart-timing').checked,
                     timingApproach: document.getElementById('timing-approach').value
                 };
@@ -3643,6 +3690,9 @@
                     document.getElementById('start-btn').textContent = 'Start Optimization';
                     document.getElementById('partial-btn').textContent = '🧩 Partial Optimization';
                     activeJobIds = [];
+                    isPaused = false;
+                    document.getElementById('pause-optimization-btn').innerHTML = '⏸ PAUSE';
+                    document.getElementById('pause-optimization-btn').style.background = '#f59e0b';
                     hideGlobalProgress();
                     loadHistory();
                     // Refresh job list in Logs tab
@@ -4056,6 +4106,27 @@
         let finalizedSymbols = new Set();
         let hasJobProgressUpdates = false;
 
+        let isPaused = false;
+
+        async function togglePauseOptimization() {
+            if (activeJobIds.length === 0) return;
+            const btn = document.getElementById('pause-optimization-btn');
+            const endpoint = isPaused ? '/api/resume' : '/api/pause';
+            try {
+                await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ job_ids: activeJobIds })
+                });
+                isPaused = !isPaused;
+                btn.innerHTML = isPaused ? '▶ RESUME' : '⏸ PAUSE';
+                btn.style.background = isPaused ? '#22c55e' : '#f59e0b';
+                log(isPaused ? '⏸ Optimization paused' : '▶ Optimization resumed', 'info');
+            } catch (e) {
+                log(`Failed to ${isPaused ? 'resume' : 'pause'}: ${e.message}`, 'error');
+            }
+        }
+
         async function stopOptimization() {
             if (activeJobIds.length === 0) {
                 log('No active optimization to stop', 'warning');
@@ -4081,6 +4152,9 @@
                 document.getElementById('global-progress').style.display = 'none';
                 activeJobIds = [];
                 optimizationStopped = false;
+                isPaused = false;
+                document.getElementById('pause-optimization-btn').innerHTML = '⏸ PAUSE';
+                document.getElementById('pause-optimization-btn').style.background = '#f59e0b';
 
             } catch (e) {
                 log(`Failed to stop: ${e.message}`, 'error');
@@ -4132,6 +4206,8 @@
             const trials = parseInt(document.getElementById('trials').value);
             const metric = document.getElementById('metric').value;
             const useGpu = document.getElementById('use-gpu').checked;
+            const useCpu = document.getElementById('use-cpu').checked;
+            const useIgpu = document.getElementById('use-igpu').checked;
             const smartTiming = document.getElementById('smart-timing').checked;
             const timingApproach = document.getElementById('timing-approach').value;
 
@@ -4151,9 +4227,13 @@
             finalizedSymbols = new Set();
             hasJobProgressUpdates = false;
 
-            // Show GPU mode in log
-            if (useGpu) {
-                log('Preparing GPU-accelerated optimization (RTX 3089 EVGA)...', 'info');
+            // Show hardware engines in log
+            const engines = [];
+            if (useGpu) engines.push('RTX 3080 EVGA');
+            if (useCpu) engines.push('i9-13900K (32 cores)');
+            if (useIgpu) engines.push('Intel UHD Graphics');
+            if (engines.length) {
+                log(`Hardware engines: ${engines.join(' + ')}`, 'info');
             }
 
             document.getElementById('start-btn').disabled = true;
@@ -4182,6 +4262,8 @@
                         n_trials: trials,
                         optimization_metric: metric,
                         use_gpu: useGpu,
+                        use_cpu: useCpu,
+                        use_igpu: useIgpu,
                         smart_timing: smartTiming,
                         timing_approach: timingApproach,
                         algo: algo,

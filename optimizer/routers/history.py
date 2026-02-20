@@ -272,20 +272,18 @@ async def get_job(job_id: str):
 
 @router.delete("/jobs")
 async def delete_all_jobs():
-    """Delete all optimizer jobs (and their associated results)."""
+    """Delete all optimizer job logs (preserves optimization results/history)."""
     conn = get_db_conn()
     if not conn:
         raise HTTPException(status_code=500, detail="Database not available")
 
     try:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM optimizer_results")
-            results_deleted = cur.rowcount
             cur.execute("DELETE FROM optimizer_jobs")
             jobs_deleted = cur.rowcount
         conn.commit()
-        logger.info(f"Cleared all job logs: {jobs_deleted} jobs, {results_deleted} results")
-        return {"status": "ok", "jobs_deleted": jobs_deleted, "results_deleted": results_deleted}
+        logger.info(f"Cleared job logs: {jobs_deleted} jobs deleted (results preserved)")
+        return {"status": "ok", "jobs_deleted": jobs_deleted}
     except Exception as e:
         logger.error(f"Failed to delete jobs: {e}")
         raise HTTPException(status_code=500, detail=str(e))

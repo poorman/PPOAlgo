@@ -520,12 +520,16 @@ def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, time
         "limit": 50000  # Get as many bars as possible
     }
     
-    logger.info(f"Fetching from Widesurf API: {symbol} {timeframe} {start_date} to {end_date}{' @' + target_time if target_time else ''}")
+    global _widesurf_consecutive_failures, _widesurf_circuit_open
+
+    # Circuit breaker: fail fast if API is known to be down
+    if _widesurf_circuit_open:
+        return bars  # Return empty list immediately
 
     sem = _WIDESURF_SEMAPHORE
-    req_timeout = 60
+    req_timeout = 15  # Reduced from 60s — fail faster on unreachable APIs
 
-    max_retries = 3
+    max_retries = 2  # Reduced from 3
     for attempt in range(max_retries):
         try:
             with sem:
@@ -536,11 +540,7 @@ def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, time
                 results = data.get("results") or []
 
                 for bar in results:
-                    # Convert Widesurf format to our standard format
-                    # Widesurf returns: o, h, l, c, v, vw (VWAP), t (timestamp in ms)
                     timestamp_ms = bar.get("t", 0)
-
-                    # Convert timestamp from ms to ISO format
                     if timestamp_ms:
                         dt = datetime.utcfromtimestamp(timestamp_ms / 1000)
                         timestamp_str = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -554,31 +554,49 @@ def fetch_prices_from_widesurf(symbol: str, start_date: str, end_date: str, time
                         "l": bar.get("l", 0),
                         "c": bar.get("c", 0),
                         "v": bar.get("v", 0),
-                        "vw": bar.get("vw", 0)  # VWAP
+                        "vw": bar.get("vw", 0)
                     })
 
                 logger.info(f"Widesurf returned {len(bars)} bars for {symbol}")
-                break  # Success — exit retry loop
+                # Reset circuit breaker on success
+                with _widesurf_circuit_lock:
+                    _widesurf_consecutive_failures = 0
+                    _widesurf_circuit_open = False
+                break
             else:
                 logger.error(f"Widesurf API error: status {resp.status_code}, response: {resp.text[:500]}")
-                break  # Non-retryable HTTP error
+                break
+
+        except (requests.exceptions.ConnectionError, ConnectionRefusedError) as e:
+            # Connection refused / unreachable — don't retry, count toward circuit breaker
+            with _widesurf_circuit_lock:
+                _widesurf_consecutive_failures += 1
+                if _widesurf_consecutive_failures >= _WIDESURF_CIRCUIT_THRESHOLD:
+                    _widesurf_circuit_open = True
+                    logger.error(f"Widesurf API circuit OPEN after {_widesurf_consecutive_failures} consecutive failures — all calls will fail fast")
+            logger.warning(f"Widesurf connection failed for {symbol}: {e}")
+            break  # Don't retry connection errors
 
         except Exception as e:
             if attempt < max_retries - 1:
-                wait_secs = (0.1 * (2 ** attempt)) if is_v2 else (2 ** attempt)  # V2: 0.1s, 0.2s | V1: 1s, 2s
+                wait_secs = 0.1 * (2 ** attempt)
                 logger.warning(f"Widesurf API request failed for {symbol} (attempt {attempt+1}/{max_retries}): {e}. Retrying in {wait_secs}s...")
                 time.sleep(wait_secs)
             else:
                 logger.error(f"Widesurf API request failed for {symbol} after {max_retries} attempts: {e}")
 
     # Store successful results in cache (with size limit to prevent OOM)
+    # For 10K stocks × 3 VWAP calls = 30K entries. Each entry ~500 bars × ~100 bytes ≈ 50KB.
+    # 30K entries ≈ 1.5GB RAM which is fine on a 45GB system.
+    # Evicting too early causes cache misses → workers re-fetch from API → semaphore contention → stuck jobs.
     if bars:
         with _widesurf_cache_lock:
-            # Simple eviction: if cache grows too large, clear half of it
-            # 300 stocks × 3 VWAP calls = 900 entries, so threshold must be above that
-            if len(_widesurf_cache) > 2000:
-                logger.info("Widesurf cache threshold reached, clearing to free memory")
-                _widesurf_cache.clear()
+            if len(_widesurf_cache) > 35000:
+                # Evict oldest half instead of clearing everything
+                keys = list(_widesurf_cache.keys())
+                for k in keys[:len(keys) // 2]:
+                    del _widesurf_cache[k]
+                logger.info(f"Widesurf cache evicted {len(keys) // 2} entries, {len(_widesurf_cache)} remaining")
             _widesurf_cache[cache_key] = list(bars)
 
     return bars
@@ -628,10 +646,9 @@ _IO_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
 )
 
 # Dedicated executor for GPU work.
-# Two threads allow pipelining: while one stock's trade log generates on CPU,
-# the next stock's grid search can run on GPU.
+# 8 threads: 2 for RTX 3080 workers + 4 for iGPU workers + 2 pipeline buffer
 _GPU_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
-    max_workers=2, thread_name_prefix="gpu"
+    max_workers=8, thread_name_prefix="gpu"
 )
 
 # ── Rate Limiting & In-Memory Cache ────────────────────────────────────────────
@@ -654,6 +671,13 @@ _widesurf_session.mount("https://", HTTPAdapter(pool_connections=20, pool_maxsiz
 # generate_trade_log fetches same bars again for the same stock).
 _widesurf_cache = {}
 _widesurf_cache_lock = threading.Lock()
+
+# Circuit breaker for Widesurf API: if we get N consecutive connection failures,
+# skip all further API calls and fail fast instead of waiting 60s×3 retries per stock.
+_widesurf_consecutive_failures = 0
+_widesurf_circuit_open = False
+_widesurf_circuit_lock = threading.Lock()
+_WIDESURF_CIRCUIT_THRESHOLD = 10  # Open circuit after 10 consecutive failures
 
 # Background clear-all cache jobs (prevents UI freeze on heavy cache operations)
 _CACHE_CLEAR_LOCK_TIMEOUT_MS = int(os.getenv("CACHE_CLEAR_LOCK_TIMEOUT_MS", "2000"))
@@ -680,6 +704,21 @@ async def startup_event():
     ensure_tables()
     ensure_keyword_configs_table()
     ensure_api_keys_table()
+
+    # Mark any orphaned "running" jobs as "interrupted" (from previous crash/restart)
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("UPDATE optimizer_jobs SET status='interrupted' WHERE status='running'")
+        orphaned = cur.rowcount
+        conn.commit()
+        cur.close()
+        conn.close()
+        if orphaned:
+            logger.info(f"Marked {orphaned} orphaned running job(s) as 'interrupted'")
+    except Exception as e:
+        logger.warning(f"Failed to clean orphaned jobs: {e}")
+
     logger.info("Optimizer server started and database pool initialized")
 
 app.include_router(api_tester_router)
@@ -963,7 +1002,9 @@ class OptimizationRequest(BaseModel):
     capital: float = 100000
     n_trials: int = 200
     optimization_metric: str = "sharpe"
-    use_gpu: bool = False  # Enable GPU-accelerated grid search
+    use_gpu: bool = True   # RTX 3080 EVGA
+    use_cpu: bool = True   # i9-13900K (Rust/Rayon)
+    use_igpu: bool = True  # Intel UHD Graphics (CuPy CPU fallback)
     smart_timing: bool = False  # Enable optimal buy time optimization
     timing_approach: str = "sequential"  # "sequential" or "joint"
     algo: str = "default"  # "default" or "chatgpt"
@@ -1401,24 +1442,34 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
             
             # Determine skip reason if trade not taken
             skip_reason = None
-            
-            # Simplified VWAP conditions (NO % threshold):
+
+            # Condition 5: buy trigger gate – price_10am >= prev_close * (1 + buy_trigger%)
+            prev_close_val = bars[i-1].get("c", 0) if i > 0 else 0
+            buy_trigger_decimal = buy_trigger_pct / 100
+            buy_trigger_ok = True
+            if prev_close_val > 0 and price_10am < prev_close_val * (1 + buy_trigger_decimal):
+                buy_trigger_ok = False
+
+            # VWAP conditions (1-4):
             # 1. price_10am > vwap (price above VWAP)
             price_above_vwap = price_10am > vwap and vwap > 0
-            
+
             # 2. vwap_slope > 0 (VWAP trending up)
             slope_ok = vwap_slope > 0
-            
+
             # 3. vwap_stretch < 0.50 * or_vol (not too extended)
             stretch_ok = vwap_stretch < alpha * or_vol if or_vol > 0 else vwap_stretch < 0.01
-            
+
             # 4. momentum_score > 0.25 * or_vol (sufficient momentum)
             momentum_ok = momentum_score > gamma * or_vol if or_vol > 0 else momentum_score > 0.005
-            
-            vwap_ok = price_above_vwap and slope_ok and stretch_ok and momentum_ok
-            
-            # Skip reason (in priority order)
-            if not price_above_vwap:
+
+            vwap_ok = buy_trigger_ok and price_above_vwap and slope_ok and stretch_ok and momentum_ok
+
+            # Skip reason (in priority order – buy trigger checked first)
+            if not buy_trigger_ok:
+                pct_above = ((price_10am - prev_close_val) / prev_close_val * 100) if prev_close_val > 0 else 0
+                skip_reason = f"buy trig ({pct_above:.1f}% < {buy_trigger_pct:.1f}%)"
+            elif not price_above_vwap:
                 if vwap <= 0:
                     skip_reason = "No VWAP"
                 else:
@@ -1429,8 +1480,8 @@ def generate_trade_log(bars: list, buy_trigger_pct: float, sell_trigger_pct: flo
                 skip_reason = f"stretch↑ ({vwap_stretch*100:.2f}%)"
             elif not momentum_ok:
                 skip_reason = f"mom↓ ({momentum_score*100:.2f}%)"
-            
-            # Entry: ALL VWAP conditions passed (no % threshold)
+
+            # Entry: ALL 5 conditions passed
             bought = vwap_ok
             
             buy_price = price_10am if bought else None
@@ -2599,18 +2650,18 @@ async def optimize_stock(
                 # Hybrid Dispatch: Use GPU engine if worker is GPU AND software is available, otherwise use Rust engine
                 loop = asyncio.get_event_loop()
                 if use_gpu_path:
-                    from gpu_backtest import run_chatgpt_vwap_optimization
-                    logger.info(f"[Hybrid] Dispatching {symbol} to GPU Engine (CuPy)")
+                    from gpu_backtest import run_gpu_vwap_rust_optimization
+                    logger.info(f"[Hybrid] Dispatching {symbol} to GPU Engine (5-condition VWAP, CuPy)")
                     await broadcast_message({
                         "type": "status",
                         "job_id": job_id,
                         "symbol": symbol,
                         "status": "optimizing_gpu",
-                        "message": f"🚀 Initializing RTX 3080 GPU Backtester..."
+                        "message": f"🚀 GPU VWAP 5-condition backtester (RTX 3080)..."
                     })
                     gpu_result = await loop.run_in_executor(
                         _GPU_EXECUTOR,
-                        run_chatgpt_vwap_optimization,
+                        run_gpu_vwap_rust_optimization,
                         bars_with_vwap,
                         config.capital,
                         buy_range,
@@ -3107,8 +3158,10 @@ async def websocket_endpoint(websocket: WebSocket):
         active_connections.remove(websocket)
 
 
-# Track cancelled jobs
+# Track cancelled and paused jobs
 cancelled_jobs = set()
+paused_jobs = set()
+_pause_events: dict[str, asyncio.Event] = {}  # job_id -> Event (set=running, clear=paused)
 
 
 class CancelRequest(BaseModel):
@@ -3120,14 +3173,51 @@ async def cancel_optimization(request: CancelRequest):
     """Cancel running optimizations."""
     for job_id in request.job_ids:
         cancelled_jobs.add(job_id)
+        paused_jobs.discard(job_id)
+        if job_id in _pause_events:
+            _pause_events[job_id].set()  # Unblock paused workers so they can exit
         logger.info(f"Cancellation requested for job: {job_id}")
-    
+
     return {"status": "cancelled", "message": f"Cancelled {len(request.job_ids)} job(s)", "job_ids": request.job_ids}
+
+
+@app.post("/api/pause")
+async def pause_optimization(request: CancelRequest):
+    """Pause running optimizations. Workers finish current stock then wait."""
+    paused = []
+    for job_id in request.job_ids:
+        if job_id not in cancelled_jobs:
+            paused_jobs.add(job_id)
+            if job_id in _pause_events:
+                _pause_events[job_id].clear()  # Block workers
+            paused.append(job_id)
+            logger.info(f"Paused job: {job_id}")
+    return {"status": "paused", "job_ids": paused}
+
+
+@app.post("/api/resume")
+async def resume_optimization(request: CancelRequest):
+    """Resume paused optimizations."""
+    resumed = []
+    for job_id in request.job_ids:
+        if job_id in paused_jobs:
+            paused_jobs.discard(job_id)
+            if job_id in _pause_events:
+                _pause_events[job_id].set()  # Unblock workers
+            resumed.append(job_id)
+            logger.info(f"Resumed job: {job_id}")
+    return {"status": "resumed", "job_ids": resumed}
 
 
 def is_job_cancelled(job_id: str) -> bool:
     """Check if a job has been cancelled."""
     return job_id in cancelled_jobs
+
+
+async def wait_if_paused(job_id: str):
+    """Block until job is unpaused. Returns immediately if not paused."""
+    if job_id in _pause_events:
+        await _pause_events[job_id].wait()
 
 
 @app.post("/api/optimize")
@@ -3201,6 +3291,16 @@ async def start_optimization(request: OptimizationRequest):
         total_count = len(request.symbols)
         completed_count = 0
 
+        # Register pause event for this job (set = running)
+        _pause_events[job_id] = asyncio.Event()
+        _pause_events[job_id].set()
+
+        # Reset Widesurf circuit breaker at start of each new job
+        global _widesurf_consecutive_failures, _widesurf_circuit_open
+        with _widesurf_circuit_lock:
+            _widesurf_consecutive_failures = 0
+            _widesurf_circuit_open = False
+
         # ── Pipelined Download + Optimize ─────────────────────────────────────
         # Downloads data in batches and feeds stocks to optimization workers
         # as soon as each batch is ready. Workers start optimizing immediately
@@ -3228,17 +3328,18 @@ async def start_optimization(request: OptimizationRequest):
                     needs_vwap = algo_type in _VWAP_ALGOS
 
                     if needs_vwap:
-                        await asyncio.gather(
+                        # 30s timeout for entire prefetch — fail fast if API is slow/down
+                        await asyncio.wait_for(asyncio.gather(
                             loop.run_in_executor(_IO_EXECUTOR, fetcher,
                                 sym, request.start_date, request.end_date, "1Day"),
                             loop.run_in_executor(_IO_EXECUTOR, fetcher,
                                 sym, request.start_date, request.end_date, "1Day", "1000"),
                             loop.run_in_executor(_IO_EXECUTOR, fetcher,
                                 sym, request.start_date, request.end_date, "1Day", "0940"),
-                        )
+                        ), timeout=30)
                     else:
-                        await loop.run_in_executor(_IO_EXECUTOR, fetcher,
-                            sym, request.start_date, request.end_date, "1Day")
+                        await asyncio.wait_for(loop.run_in_executor(_IO_EXECUTOR, fetcher,
+                            sym, request.start_date, request.end_date, "1Day"), timeout=30)
                 else:
                     await loop.run_in_executor(_IO_EXECUTOR, fetch_and_cache_prices,
                         sym, request.start_date, request.end_date, "1Day")
@@ -3256,89 +3357,120 @@ async def start_optimization(request: OptimizationRequest):
                 })
 
         # ── Optimization worker ──────────────────────────────────────────────
+        STOCK_TIMEOUT = 180  # 3 minutes max per stock before giving up
+
         async def worker(worker_id, work_queue, engine_type='cpu'):
             nonlocal completed_count
             logger.info(f"Worker {worker_id} ({engine_type}) started")
             while True:
                 if is_job_cancelled(job_id): break
+                await wait_if_paused(job_id)  # Block here if job is paused
+                if is_job_cancelled(job_id): break  # Re-check after unpause
                 try:
                     symbol = await asyncio.wait_for(work_queue.get(), timeout=3.0)
                 except asyncio.TimeoutError:
-                    # If download is done and queue is empty, we're finished
-                    if download_complete.is_set():
+                    # Exit when all downloads are done AND queue is fully drained
+                    if download_complete.is_set() and work_queue.empty():
                         break
                     continue
                 try:
                     start_time = time.time()
                     logger.info(f"Worker {worker_id} ({engine_type}) starting {symbol}")
-                    res = await optimize_stock(symbol, request, job_id, engine_override=engine_type)
+                    # Wrap optimize_stock with a timeout to prevent indefinite hangs
+                    res = await asyncio.wait_for(
+                        optimize_stock(symbol, request, job_id, engine_override=engine_type),
+                        timeout=STOCK_TIMEOUT
+                    )
                     duration = time.time() - start_time
+                    success = bool(res)
                     if res:
                         results[symbol] = res
                         optimization_results[symbol] = res
                         logger.info(f"Worker {worker_id} ({engine_type}) finished {symbol} in {duration:.2f}s")
                     else:
                         logger.warning(f"Worker {worker_id} ({engine_type}) failed {symbol} in {duration:.2f}s")
-
+                except asyncio.TimeoutError:
+                    logger.error(f"Worker {worker_id} TIMEOUT on {symbol} after {STOCK_TIMEOUT}s — skipping")
+                    success = False
+                except Exception as e:
+                    logger.error(f"Worker {worker_id} error on {symbol}: {e}")
+                    success = False
+                finally:
+                    # Always increment count and signal task_done to prevent queue.join() hang
                     completed_count += 1
                     work_queue.task_done()
-
-                    await broadcast_message({
-                        "type": "job_progress",
-                        "job_id": job_id,
-                        "completed": completed_count,
-                        "total": total_count,
-                        "symbol": symbol,
-                        "success": bool(res),
-                        "message": f"🔄 Optimized: {completed_count}/{total_count} stocks (📥 {prefetch_done[0]}/{total_count} downloaded)"
-                    })
+                    try:
+                        await broadcast_message({
+                            "type": "job_progress",
+                            "job_id": job_id,
+                            "completed": completed_count,
+                            "total": total_count,
+                            "symbol": symbol,
+                            "success": success,
+                            "message": f"🔄 Optimized: {completed_count}/{total_count} stocks (📥 {prefetch_done[0]}/{total_count} downloaded)"
+                        })
+                    except Exception:
+                        pass
                     if completed_count % 10 == 0 or completed_count == total_count:
                         logger.info(f"Job {job_id} progress: {completed_count}/{total_count} ({engine_type} worker {worker_id} finished {symbol})")
-                except Exception as e:
-                    logger.error(f"Worker {worker_id} error: {e}")
-                    completed_count += 1
-                    await broadcast_message({
-                        "type": "job_progress",
-                        "job_id": job_id,
-                        "completed": completed_count,
-                        "total": total_count,
-                        "symbol": symbol,
-                        "success": False,
-                        "message": f"🔄 Optimized: {completed_count}/{total_count} stocks"
-                    })
-                    work_queue.task_done()
 
-        # ── Set up work queue and workers ────────────────────────────────────
-        # Auto-enable GPU when hardware is available.
-        use_gpu_dispatch = GPU_BACKTEST_AVAILABLE and (request.use_gpu is not False)
+        # ── Set up work queues and workers based on hardware checkboxes ─────
+        want_gpu  = request.use_gpu and GPU_BACKTEST_AVAILABLE   # RTX 3080
+        want_cpu  = request.use_cpu                               # i9-13900K (Rust)
+        want_igpu = request.use_igpu and GPU_BACKTEST_AVAILABLE   # Intel UHD (CuPy CPU path)
+
+        # Fallback: if user unchecked everything, use CPU
+        if not want_gpu and not want_cpu and not want_igpu:
+            want_cpu = True
 
         n_cpu_workers = min(30, max(4, total_count))
 
-        # chatgpt_vwap_rust must always use the Rust engine
-        use_hybrid = use_gpu_dispatch and algo_type != 'chatgpt_vwap_rust'
+        # Build engine list with worker counts and share weights
+        engines = []  # list of (queue, engine_type, n_workers, weight)
+        if want_gpu:
+            engines.append(('gpu', 2, 0.35))       # RTX 3080: 2 GPU workers, 35% of stocks
+        if want_cpu:
+            engines.append(('cpu', n_cpu_workers, 0.50))  # i9-13900K: 30 Rust workers, 50%
+        if want_igpu:
+            engines.append(('igpu', 4, 0.15))      # Intel UHD: 4 numpy workers, 15%
 
-        cpu_queue = asyncio.Queue()
-        gpu_queue = asyncio.Queue() if use_hybrid else None
+        # Normalise weights to sum to 1.0
+        total_weight = sum(e[2] for e in engines)
+        engines = [(etype, nw, w / total_weight) for etype, nw, w in engines]
 
+        # Create queues and workers
+        queues = {}
         worker_tasks = []
-        if use_hybrid:
-            gpu_share = max(1, int(total_count * 0.4))
-            logger.info(f"Hybrid dispatch: GPU={gpu_share} stocks (2 workers), CPU={total_count - gpu_share} stocks ({n_cpu_workers} workers)")
-            worker_tasks.append(asyncio.create_task(worker("GPU-1", gpu_queue, engine_type='gpu')))
-            worker_tasks.append(asyncio.create_task(worker("GPU-2", gpu_queue, engine_type='gpu')))
-            for i in range(n_cpu_workers):
-                worker_tasks.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
-        else:
-            if algo_type == 'chatgpt_vwap_rust' and use_gpu_dispatch:
-                logger.info(f"VWAP Rust algo: bypassing GPU, routing all {total_count} stocks to Rust/CPU workers")
-            for i in range(n_cpu_workers):
-                worker_tasks.append(asyncio.create_task(worker(f"CPU-{i+1}", cpu_queue, engine_type='cpu')))
+        engine_shares = {}  # engine_type → number of stocks assigned
+
+        remaining = total_count
+        for idx, (etype, n_workers, weight) in enumerate(engines):
+            q = asyncio.Queue()
+            queues[etype] = q
+            if idx == len(engines) - 1:
+                share = remaining  # last engine gets the rest
+            else:
+                share = max(1, int(total_count * weight))
+                remaining -= share
+            engine_shares[etype] = share
+
+            for i in range(n_workers):
+                # igpu workers use 'gpu' engine_type so they go through CuPy/numpy path
+                worker_engine = 'gpu' if etype == 'igpu' else etype
+                label = f"{etype.upper()}-{i+1}"
+                worker_tasks.append(asyncio.create_task(worker(label, q, engine_type=worker_engine)))
+
+        engine_desc = ", ".join(f"{et.upper()}={engine_shares[et]} stocks ({nw} workers)" for et, nw, _ in engines)
+        logger.info(f"Multi-engine dispatch: {engine_desc}")
 
         # ── Downloader task: fetch data in batches and feed work queues ──────
-        async def downloader():
-            gpu_idx = 0
-            gpu_share = max(1, int(total_count * 0.4)) if use_hybrid else 0
+        # Round-robin assignment: first N go to engine 1, next M to engine 2, etc.
+        engine_order = []  # flat list: [(engine_type, queue)] repeated per stock
+        for etype, _, _ in engines:
+            for _ in range(engine_shares[etype]):
+                engine_order.append((etype, queues[etype]))
 
+        async def downloader():
             if _is_widesurf_source(data_source):
                 BATCH_SIZE = 40
                 sym_idx = 0
@@ -3346,22 +3478,17 @@ async def start_optimization(request: OptimizationRequest):
                     if is_job_cancelled(job_id): break
                     batch = request.symbols[batch_start:batch_start + BATCH_SIZE]
                     await asyncio.gather(*[prefetch_one(s) for s in batch])
-                    # Feed downloaded stocks to optimization queues immediately
                     for s in batch:
-                        if use_hybrid and sym_idx < gpu_share:
-                            gpu_queue.put_nowait(s)
-                        else:
-                            cpu_queue.put_nowait(s)
+                        _, q = engine_order[sym_idx]
+                        q.put_nowait(s)
                         sym_idx += 1
                     if batch_start + BATCH_SIZE < total_count:
                         await asyncio.sleep(0.1)
             else:
                 await asyncio.gather(*[prefetch_one(s) for s in request.symbols])
                 for i, s in enumerate(request.symbols):
-                    if use_hybrid and i < gpu_share:
-                        gpu_queue.put_nowait(s)
-                    else:
-                        cpu_queue.put_nowait(s)
+                    _, q = engine_order[i]
+                    q.put_nowait(s)
 
             download_complete.set()
             logger.info(f"Download complete: {prefetch_done[0]}/{total_count} stocks fetched")
@@ -3369,17 +3496,21 @@ async def start_optimization(request: OptimizationRequest):
         # Launch downloader and workers concurrently
         downloader_task = asyncio.create_task(downloader())
 
-        # Wait for downloader to finish first, then drain queues
+        # Wait for downloader to finish first, then drain all queues
         await downloader_task
-
-        if use_hybrid:
-            await asyncio.gather(gpu_queue.join(), cpu_queue.join())
-        else:
-            await cpu_queue.join()
+        try:
+            # Global safety timeout: 4 hours max for the entire job
+            await asyncio.wait_for(
+                asyncio.gather(*(q.join() for q in queues.values())),
+                timeout=14400
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Job {job_id} global timeout after 4 hours — finishing with {completed_count}/{total_count} stocks")
 
         for w in worker_tasks: w.cancel()
-        
-        # Clean up the in-memory Widesurf cache to free memory
+
+        # Clean up pause event and in-memory Widesurf cache to free memory
+        _pause_events.pop(job_id, None)
         with _widesurf_cache_lock:
             _widesurf_cache.clear()
         
@@ -3393,7 +3524,7 @@ async def start_optimization(request: OptimizationRequest):
             "type": "job_complete",
             "job_id": job_id,
             "results": results,
-            "message": f"All {total_count} stocks optimized using {'Hybrid Dual-Engine (CPU+GPU)' if use_hybrid else 'Rust/CPU Engine'}!"
+            "message": f"All {total_count} stocks optimized using {engine_desc}!"
         })
     
     asyncio.create_task(run_all())
